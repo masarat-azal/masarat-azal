@@ -1,93 +1,74 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
-import { COLORS } from "../../../lib/theme";
-import { getCustomerBalance, balanceDirection } from "../../../lib/dataHelpers";
-import { money } from "../../../lib/theme";
+import { COLORS, money } from "../../../lib/theme";
 
-export default function CustomersPage() {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newName, setNewName] = useState("");
-
-  async function load() {
-    setLoading(true);
-    const { data: customers } = await supabase.from("customers").select("*").order("name");
-    const withBalance = await Promise.all(
-      (customers || []).map(async (c) => {
-        const b = await getCustomerBalance(c.id);
-        return { ...c, ...balanceDirection(false, b.balance) };
-      })
-    );
-    setRows(withBalance);
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function addCustomer() {
-    if (!newName.trim()) return;
-    await supabase.from("customers").insert({ name: newName.trim() });
-    setNewName("");
-    setShowAdd(false);
-    load();
-  }
-
+function Card({ label, value, color }) {
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.green }}>العملاء</h1>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          style={{ background: COLORS.green, color: "#fff", border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700, cursor: "pointer" }}
-        >
-          + إضافة
-        </button>
-      </div>
-
-      {showAdd && (
-        <div style={{ background: "#fff", padding: 14, borderRadius: 12, marginBottom: 14, border: `1px solid ${COLORS.silver}`, display: "flex", gap: 8 }}>
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="اسم العميل الجديد"
-            style={{ flex: 1, padding: 10, borderRadius: 8, border: `1.5px solid ${COLORS.silver}` }}
-          />
-          <button onClick={addCustomer} style={{ background: COLORS.green, color: "#fff", border: "none", borderRadius: 8, padding: "0 16px", fontWeight: 700 }}>
-            حفظ
-          </button>
-        </div>
-      )}
-
-      {loading ? (
-        <div style={{ color: COLORS.grey }}>جاري التحميل…</div>
-      ) : rows.length === 0 ? (
-        <div style={{ color: COLORS.grey }}>لا يوجد عملاء بعد.</div>
-      ) : (
-        rows.map((c) => (
-          <a
-            key={c.id}
-            href={`/customers/${c.id}`}
-            style={{
-              display: "block",
-              background: "#fff",
-              borderRadius: 12,
-              padding: 14,
-              marginBottom: 10,
-              border: `1px solid ${COLORS.silver}`,
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</div>
-            <div style={{ fontSize: 13, color: COLORS.grey, marginTop: 4 }}>
-              {c.icon} {c.text}
-              {c.amount ? `: ${money(c.amount)}` : ""}
-            </div>
-          </a>
-        ))
-      )}
+    <div style={{ background: COLORS.panel, borderRadius: 14, padding: 16, border: `1px solid ${COLORS.border}` }}>
+      <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 6, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color: color || COLORS.text }}>{value}</div>
     </div>
   );
 }
+
+export default function Dashboard() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [totals, setTotals] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [{ data: sales }, { data: purchases }, { data: expenses }] = await Promise.all([
+          supabase.from("sales").select("net_total,paid,date"),
+          supabase.from("purchases").select("amount,paid"),
+          supabase.from("expenses").select("amount"),
+        ]);
+        const totalSales = (sales || []).reduce((s, r) => s + (Number(r.net_total) || 0), 0);
+        const paidByCustomers = (sales || []).reduce((s, r) => s + (Number(r.paid) || 0), 0);
+        const totalPurchases = (purchases || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+        const paidToSuppliers = (purchases || []).reduce((s, r) => s + (Number(r.paid) || 0), 0);
+        const totalExpenses = (expenses || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+        const today = new Date().toISOString().slice(0, 10);
+        const todayCount = (sales || []).filter((r) => r.date === today).length;
+        setTotals({
+          totalSales, receivable: totalSales - paidByCustomers, totalPurchases,
+          payable: totalPurchases - paidToSuppliers, totalExpenses,
+          netProfit: totalSales - totalPurchases - totalExpenses, todayCount,
+        });
+      } catch (e) { setError(e.message); } finally { setLoading(false); }
+    })();
+  }, []);
+
+  return (
+    <div>
+      <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold, marginBottom: 16 }}>لوحة التحكم</h1>
+      {error && <div style={{ color: COLORS.red, marginBottom: 12 }}>⚠️ {error}</div>}
+      {loading ? (
+        <div style={{ color: COLORS.textDim }}>جاري التحميل…</div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+            <a href="/customers" style={cardLink}><span style={{fontSize:22}}>👥</span><div>العملاء</div></a>
+            <a href="/suppliers" style={cardLink}><span style={{fontSize:22}}>🚚</span><div>الموردون</div></a>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Card label="إجمالي المبيعات" value={money(totals.totalSales)} />
+            <Card label="مستحق على العملاء" value={money(totals.receivable)} color={COLORS.red} />
+            <Card label="إجمالي المشتريات" value={money(totals.totalPurchases)} />
+            <Card label="مستحق للموردين" value={money(totals.payable)} color={COLORS.red} />
+            <Card label="إجمالي المصروفات" value={money(totals.totalExpenses)} color={COLORS.red} />
+            <Card label="صافي الربح التقديري" value={money(totals.netProfit)} color={COLORS.gold} />
+            <Card label="عمليات اليوم" value={totals.todayCount} />
+          </div>
+        </>
+      )}
+      <a href="/operations/new" style={{ display: "block", textAlign: "center", marginTop: 20, background: COLORS.gold, color: COLORS.bg, padding: "14px", borderRadius: 12, fontWeight: 700 }}>
+        + تسجيل عملية جديدة
+      </a>
+    </div>
+  );
+}
+
+const cardLink = { display: "flex", alignItems: "center", gap: 10, background: COLORS.panel, border: `1px solid ${COLORS.border}`, borderRadius: 14, padding: 16, color: COLORS.text, fontWeight: 700 };
