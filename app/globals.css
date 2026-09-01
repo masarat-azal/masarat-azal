@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+
 * {
   box-sizing: border-box;
 }
@@ -6,9 +8,9 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: #f6f7f5;
-  color: #263238;
-  font-family: "Tahoma", "Segoe UI", Arial, sans-serif;
+  background: #0A1A1A;
+  color: #E5E7EB;
+  font-family: "Cairo", "Tahoma", Arial, sans-serif;
 }
 
 a {
@@ -20,6 +22,9 @@ input,
 textarea,
 select {
   font-family: inherit;
+  background: #1A2F2F;
+  color: #E5E7EB;
+  border: 1.5px solid #1F2937;
 }
 
 button {
@@ -27,5 +32,13 @@ button {
 }
 
 ::placeholder {
-  color: #9aa4a9;
+  color: #6B7A7A;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #1F2937;
+  border-radius: 8px;
 }
