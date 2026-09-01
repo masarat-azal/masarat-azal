@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
 import { COLORS, money, fmtDate } from "../../../../lib/theme";
 import { getCustomerBalance, balanceDirection, fetchCustomOperations } from "../../../../lib/dataHelpers";
+import { generateStatementPDF } from "../../../../lib/pdfGenerator";
 
 export default function CustomerDetail() {
   const { id } = useParams();
@@ -43,7 +44,27 @@ export default function CustomerDetail() {
   return (
     <div>
       <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold, marginBottom: 4 }}>{customer.name}</h1>
-      <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 16 }}>صفحة العميل</div>
+     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 13, color: COLORS.textDim }}>صفحة العميل</div>
+        <button
+          onClick={() => {
+            const items = timeline.map((item) =>
+              item.kind === "sale"
+                ? { date: item.data.date, description: `${item.data.products?.name || "ديزل"} — ${item.data.quantity || ""} لتر`, amount: item.data.net_total, effect: 1 }
+                : { date: item.data.date, description: `${item.data.type_name} — ${item.data.description || ""}`, amount: item.data.amount, effect: item.data.effect }
+            );
+            generateStatementPDF({
+              partyName: customer.name, partyLabel: "Customer / العميل", items,
+              totalDue: balance.totalNet + balance.opening + balance.customOpsEffect,
+              totalPaid: balance.paidInSales + balance.totalPayments,
+              balanceText: dir.text, balanceAmount: dir.amount,
+            });
+          }}
+          style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+        >
+          📄 تحميل PDF
+        </button>
+      </div>
 
       <div style={{ background: COLORS.panel, borderRadius: 14, padding: 16, marginBottom: 16, border: `1px solid ${COLORS.border}` }}>
         <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4 }}>إجمالي المستحق</div>
