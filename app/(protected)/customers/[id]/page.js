@@ -35,31 +35,35 @@ export default function CustomerDetail() {
 
   const dir = balanceDirection(false, balance.balance);
 
-  // دمج المبيعات والعمليات المخصصة في سجل زمني واحد
   const timeline = [
     ...sales.map((s) => ({ kind: "sale", date: s.date, data: s })),
     ...customOps.map((o) => ({ kind: "custom", date: o.date, data: o })),
   ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
+  function downloadPDF() {
+    const items = timeline.map((item) =>
+      item.kind === "sale"
+        ? { date: item.data.date, description: `${item.data.products?.name || "ديزل"} — ${item.data.quantity || ""} لتر`, amount: item.data.net_total, effect: 1 }
+        : { date: item.data.date, description: `${item.data.type_name} — ${item.data.description || ""}`, amount: item.data.amount, effect: item.data.effect }
+    );
+    generateStatementPDF({
+      partyName: customer.name,
+      partyLabel: "Customer / العميل",
+      items,
+      totalDue: balance.totalNet + balance.opening + balance.customOpsEffect,
+      totalPaid: balance.paidInSales + balance.totalPayments,
+      balanceText: dir.text,
+      balanceAmount: dir.amount,
+    });
+  }
+
   return (
     <div>
       <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold, marginBottom: 4 }}>{customer.name}</h1>
-     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: COLORS.textDim }}>صفحة العميل</div>
         <button
-          onClick={() => {
-            const items = timeline.map((item) =>
-              item.kind === "sale"
-                ? { date: item.data.date, description: `${item.data.products?.name || "ديزل"} — ${item.data.quantity || ""} لتر`, amount: item.data.net_total, effect: 1 }
-                : { date: item.data.date, description: `${item.data.type_name} — ${item.data.description || ""}`, amount: item.data.amount, effect: item.data.effect }
-            );
-            generateStatementPDF({
-              partyName: customer.name, partyLabel: "Customer / العميل", items,
-              totalDue: balance.totalNet + balance.opening + balance.customOpsEffect,
-              totalPaid: balance.paidInSales + balance.totalPayments,
-              balanceText: dir.text, balanceAmount: dir.amount,
-            });
-          }}
+          onClick={downloadPDF}
           style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
         >
           📄 تحميل PDF
@@ -80,7 +84,7 @@ export default function CustomerDetail() {
       {timeline.length === 0 ? (
         <div style={{ color: COLORS.textDim }}>لا توجد عمليات بعد.</div>
       ) : (
-        timeline.map((item, i) => {
+        timeline.map((item) => {
           if (item.kind === "sale") {
             const s = item.data;
             return (
