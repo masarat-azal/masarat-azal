@@ -51,7 +51,7 @@ export async function POST(req) {
         return Response.json(JSON.parse(match[0]));
       }
       lastErr = `HTTP ${res.status} [${model}] ${(await res.text()).slice(0, 150)}`;
-      if (res.status !== 404 && res.status !== 429) break;
+     if (res.status !== 404 && res.status !== 429 && res.status !== 503) break; 
     }
     return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
   } catch (e) {
