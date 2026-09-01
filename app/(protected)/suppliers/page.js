@@ -10,6 +10,7 @@ export default function SuppliersPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
+  const [search, setSearch] = useState("");
 
   async function load() {
     setLoading(true);
@@ -49,12 +50,21 @@ export default function SuppliersPage() {
     load();
   }
 
+  const filtered = rows.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold }}>الموردون</h1>
         <button onClick={() => setShowAdd(!showAdd)} style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700 }}>+ إضافة</button>
       </div>
+
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="🔍 بحث بالاسم..."
+        style={{ width: "100%", padding: 12, borderRadius: 10, border: `1.5px solid ${COLORS.border}`, marginBottom: 14, boxSizing: "border-box", background: COLORS.panelLight, color: COLORS.text, fontSize: 14 }}
+      />
 
       {showAdd && (
         <div style={{ background: COLORS.panel, padding: 14, borderRadius: 12, marginBottom: 14, border: `1px solid ${COLORS.border}` }}>
@@ -66,10 +76,10 @@ export default function SuppliersPage() {
 
       {loading ? (
         <div style={{ color: COLORS.textDim }}>جاري التحميل…</div>
-      ) : rows.length === 0 ? (
-        <div style={{ color: COLORS.textDim }}>لا يوجد موردون بعد.</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ color: COLORS.textDim }}>{search ? "لا نتائج مطابقة." : "لا يوجد موردون بعد."}</div>
       ) : (
-        rows.map((s) => (
+        filtered.map((s) => (
           <a key={s.id} href={`/suppliers/${s.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: COLORS.panel, borderRadius: 12, padding: 14, marginBottom: 10, border: `1px solid ${COLORS.border}` }}>
             <div>
               <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.text }}>{s.name}</div>
