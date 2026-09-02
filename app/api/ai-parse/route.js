@@ -1,12 +1,13 @@
 export async function POST(req) {
   try {
-    const { text, customers, suppliers, products, locations } = await req.json();
+    const body = await req.json();
+    const { text, image, mimeType, customers, suppliers, products, locations } = body;
     const key = process.env.GEMINI_API_KEY;
     if (!key) {
       return Response.json({ error: "GEMINI_API_KEY غير مضبوط في إعدادات الخادم" }, { status: 500 });
     }
 
-    const prompt = `أنت مساعد محاسبي لشركة نقل ديزل. حلّل الرسالة التالية وأخرج JSON فقط بلا أي نص إضافي، بلا علامات ماركداون وبلا شرح.
+    const basePrompt = `أنت مساعد محاسبي لشركة نقل ديزل. حلّل ${image ? "الصورة المرفقة (فاتورة أو إيصال أو سند)" : "الرسالة التالية"} وأخرج JSON فقط بلا أي نص إضافي، بلا علامات ماركداون وبلا شرح.
 
 العملاء المعروفون: ${customers.join("، ") || "—"}
 الموردون المعروفون: ${suppliers.join("، ") || "—"}
@@ -21,12 +22,18 @@ export async function POST(req) {
  "invoice_number":"","notes":"","missing":[]}
 
 قواعد صارمة:
-- لا تخترع رقمًا أو اسمًا غير مذكور صراحة. الحقل غير المذكور = null، واذكره في "missing".
+- لا تخترع رقمًا أو اسمًا غير مذكور صراحة أو غير واضح في الصورة. الحقل غير الواضح = null، واذكره في "missing".
+- إن كانت الصورة تحتوي شعار شركة مطبوعًا في الترويسة، استخدم اسم تلك الشركة كـ"party_name" لا أي اسم مكتوب بخط اليد.
 - طابق أسماء الأطراف والأصناف والمواقع مع القوائم أعلاه ولو اختلف الإملاء قليلًا.
 - بلا تاريخ مذكور = تاريخ اليوم.
 - "20 ألف" = 20000.
+- الخط اليدوي غير الواضح: لا تخمّن رقمًا.
+${!image ? `\nالرسالة: ${text}` : ""}`;
 
-الرسالة: ${text}`;
+    const parts = [{ text: basePrompt }];
+    if (image) {
+      parts.push({ inline_data: { mime_type: mimeType || "image/jpeg", data: image } });
+    }
 
     const models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
     let lastErr = "";
@@ -37,7 +44,7 @@ export async function POST(req) {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          body: JSON.stringify({ contents: [{ parts }] }),
         }
       );
       if (res.ok) {
@@ -46,12 +53,12 @@ export async function POST(req) {
         const cleaned = raw.replace(/```json|```/g, "").trim();
         const match = cleaned.match(/\{[\s\S]*\}/);
         if (!match) {
-          return Response.json({ error: "لم يفهم الذكاء الاصطناعي الرسالة" }, { status: 422 });
+          return Response.json({ error: "لم يفهم الذكاء الاصطناعي المحتوى" }, { status: 422 });
         }
         return Response.json(JSON.parse(match[0]));
       }
       lastErr = `HTTP ${res.status} [${model}] ${(await res.text()).slice(0, 150)}`;
-     if (res.status !== 404 && res.status !== 429 && res.status !== 503) break; 
+      if (res.status !== 404 && res.status !== 429 && res.status !== 503) break;
     }
     return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
   } catch (e) {
