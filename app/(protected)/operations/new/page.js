@@ -359,7 +359,7 @@ export default function NewOperationPage() {
 
             <div style={{ textAlign: "center", color: COLORS.textDim, fontSize: 12, margin: "12px 0" }}>— أو —</div>
 
-            <input ref={fileInputRef} type="file" accept="image/*,.pdf" capture="environment" onChange={handleImageSelected} style={{ display: "none" }} />
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf" onChange={handleImageSelected} style={{ display: "none" }} />
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={aiLoading}
