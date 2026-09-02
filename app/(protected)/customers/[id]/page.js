@@ -13,6 +13,7 @@ export default function CustomerDetail() {
   const [customOps, setCustomOps] = useState([]);
   const [balance, setBalance] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -40,21 +41,26 @@ export default function CustomerDetail() {
     ...customOps.map((o) => ({ kind: "custom", date: o.date, data: o })),
   ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  function downloadPDF() {
-    const items = timeline.map((item) =>
-      item.kind === "sale"
-        ? { date: item.data.date, description: `${item.data.products?.name || "ديزل"} — ${item.data.quantity || ""} لتر`, amount: item.data.net_total, effect: 1 }
-        : { date: item.data.date, description: `${item.data.type_name} — ${item.data.description || ""}`, amount: item.data.amount, effect: item.data.effect }
-    );
-    generateStatementPDF({
-      partyName: customer.name,
-      partyLabel: "Customer / العميل",
-      items,
-      totalDue: balance.totalNet + balance.opening + balance.customOpsEffect,
-      totalPaid: balance.paidInSales + balance.totalPayments,
-      balanceText: dir.text,
-      balanceAmount: dir.amount,
-    });
+  async function downloadPDF() {
+    setPdfLoading(true);
+    try {
+      const items = timeline.map((item) =>
+        item.kind === "sale"
+          ? { date: item.data.date, description: `${item.data.products?.name || "ديزل"} — ${item.data.quantity || ""} لتر`, amount: item.data.net_total, effect: 1 }
+          : { date: item.data.date, description: `${item.data.type_name} — ${item.data.description || ""}`, amount: item.data.amount, effect: item.data.effect }
+      );
+      await generateStatementPDF({
+        partyName: customer.name,
+        partyLabel: "Customer / العميل",
+        items,
+        totalDue: balance.totalNet + balance.opening + balance.customOpsEffect,
+        totalPaid: balance.paidInSales + balance.totalPayments,
+        balanceText: dir.text,
+        balanceAmount: dir.amount,
+      });
+    } finally {
+      setPdfLoading(false);
+    }
   }
 
   return (
@@ -64,9 +70,10 @@ export default function CustomerDetail() {
         <div style={{ fontSize: 13, color: COLORS.textDim }}>صفحة العميل</div>
         <button
           onClick={downloadPDF}
-          style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+          disabled={pdfLoading}
+          style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: pdfLoading ? 0.6 : 1 }}
         >
-          📄 تحميل PDF
+          {pdfLoading ? "⏳ جاري التجهيز…" : "📄 تحميل PDF"}
         </button>
       </div>
 
