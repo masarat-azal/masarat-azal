@@ -35,33 +35,53 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
       parts.push({ inline_data: { mime_type: mimeType || "image/jpeg", data: image } });
     }
 
-    const models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
-    let lastErr = "";
+    // قائمة نماذج مرتبة من الأحدث/الأسرع، يجرّبها الخادم بالترتيب حتى ينجح أحدها
+    const models = [
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-flash-latest",
+      "gemini-2.5-pro",
+      "gemini-2.0-flash-001",
+    ];
+    const errors = [];
 
     for (const model of models) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts }] }),
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts }] }),
+          }
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          const raw = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
+          const cleaned = raw.replace(/```json|```/g, "").trim();
+          const match = cleaned.match(/\{[\s\S]*\}/);
+          if (!match) {
+            errors.push(`[${model}] رد بلا JSON صالح`);
+            continue; // جرّب النموذج التالي بدل الفشل الفوري
+          }
+          return Response.json(JSON.parse(match[0]));
         }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const raw = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
-        const cleaned = raw.replace(/```json|```/g, "").trim();
-        const match = cleaned.match(/\{[\s\S]*\}/);
-        if (!match) {
-          return Response.json({ error: "لم يفهم الذكاء الاصطناعي المحتوى" }, { status: 422 });
-        }
-        return Response.json(JSON.parse(match[0]));
+
+        // أي خطأ HTTP (404 نموذج متوقف، 429 تجاوز حصة، 503 ازدحام، أو غيره) — سجّله وانتقل للنموذج التالي
+        const errText = await res.text();
+        errors.push(`[${model}] HTTP ${res.status}: ${errText.slice(0, 120)}`);
+      } catch (fetchErr) {
+        // خطأ شبكة/اتصال لهذا النموذج تحديدًا — لا يوقف المحاولة، ننتقل للتالي
+        errors.push(`[${model}] خطأ اتصال: ${fetchErr.message}`);
       }
-      lastErr = `HTTP ${res.status} [${model}] ${(await res.text()).slice(0, 150)}`;
-      // نتخطى فورًا للنموذج التالي عند: غير موجود (404)، تجاوز الحصة (429)، أو ازدحام مؤقت (503)
-      if (res.status !== 404 && res.status !== 429 && res.status !== 503) break;
     }
-    return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
+
+    // فشلت كل النماذج المتاحة
+    return Response.json(
+      { error: "تعذر الوصول لأي نموذج ذكاء اصطناعي متاح:\n" + errors.join("\n") },
+      { status: 502 }
+    );
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
