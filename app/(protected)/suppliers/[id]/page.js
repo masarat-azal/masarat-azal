@@ -1,158 +1,119 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import { supabase } from "../../../../lib/supabaseClient";
-import { COLORS, money, fmtDate } from "../../../../lib/theme";
-import { getSupplierBalance, balanceDirection, fetchCustomOperations, fetchDocumentsMap } from "../../../../lib/dataHelpers";
-import { generateStatementPDF } from "../../../../lib/pdfGenerator";
+import { supabase } from "../../../lib/supabaseClient";
+import { COLORS, money } from "../../../lib/theme";
+import { getSupplierBalance, balanceDirection } from "../../../lib/dataHelpers";
 
-export default function SupplierDetail() {
-  const { id } = useParams();
-  const [supplier, setSupplier] = useState(null);
-  const [purchases, setPurchases] = useState([]);
-  const [customOps, setCustomOps] = useState([]);
-  const [docsMap, setDocsMap] = useState({});
-  const [balance, setBalance] = useState(null);
+export default function SuppliersPage() {
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPrice, setNewPrice] = useState("");
+  const [search, setSearch] = useState("");
+
+  async function load() {
+    setLoading(true);
+    const { data: suppliers } = await supabase.from("suppliers").select("*").order("name");
+    const withBalance = await Promise.all(
+      (suppliers || []).map(async (s) => {
+        const b = await getSupplierBalance(s.id);
+        return { ...s, ...balanceDirection(true, b.balance) };
+      })
+    );
+    setRows(withBalance);
+    setLoading(false);
+  }
 
   useEffect(() => {
-    (async () => {
-      const { data: s } = await supabase.from("suppliers").select("*").eq("id", id).single();
-      const { data: p } = await supabase
-        .from("purchases")
-        .select("*, products(name)")
-        .eq("supplier_id", id)
-        .order("date", { ascending: false });
-      const ops = await fetchCustomOperations("supplier", id);
-      const b = await getSupplierBalance(id);
-      const opNumbers = [...(p || []).map((r) => r.op_number), ...ops.map((r) => r.op_number)].filter(Boolean);
-      const docs = await fetchDocumentsMap(opNumbers);
-      setSupplier(s);
-      setPurchases(p || []);
-      setCustomOps(ops);
-      setDocsMap(docs);
-      setBalance(b);
-      setLoading(false);
-    })();
-  }, [id]);
+    load();
+  }, []);
 
-  if (loading) return <div style={{ color: COLORS.textDim }}>جاري التحميل…</div>;
-  if (!supplier) return <div style={{ color: COLORS.red }}>المورد غير موجود.</div>;
-
-  const dir = balanceDirection(true, balance.balance);
-
-  const timeline = [
-    ...purchases.map((p) => ({ kind: "purchase", date: p.date, data: p })),
-    ...customOps.map((o) => ({ kind: "custom", date: o.date, data: o })),
-  ].sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  async function downloadPDF() {
-    setPdfLoading(true);
-    try {
-      const items = timeline.map((item) => {
-        const opNumber = item.data.op_number;
-        const hasDoc = !!(docsMap[opNumber] && docsMap[opNumber].length);
-        return item.kind === "purchase"
-          ? { date: item.data.date, description: `${item.data.products?.name || "ديزل"} — ${item.data.description || ""}`, amount: item.data.amount, effect: 1, hasDoc }
-          : { date: item.data.date, description: `${item.data.type_name} — ${item.data.description || ""}`, amount: item.data.amount, effect: item.data.effect, hasDoc };
-      });
-      await generateStatementPDF({
-        partyName: supplier.name,
-        partyLabel: "Supplier / المورد",
-        items,
-        totalDue: balance.totalAmount + balance.opening + balance.customOpsEffect,
-        totalPaid: balance.paidInPurchases + balance.totalPayments,
-        balanceText: dir.text,
-        balanceAmount: dir.amount,
-      });
-    } finally {
-      setPdfLoading(false);
-    }
+  async function addSupplier() {
+    if (!newName.trim()) return;
+    await supabase.from("suppliers").insert({ name: newName.trim(), default_price: newPrice ? Number(newPrice) : null });
+    setNewName("");
+    setNewPrice("");
+    setShowAdd(false);
+    load();
   }
+
+  async function tryDelete(e, s) {
+    e.preventDefault();
+    e.stopPropagation();
+    const [{ count: purchCount }, { count: payCount }, { count: opsCount }] = await Promise.all([
+      supabase.from("purchases").select("id", { count: "exact", head: true }).eq("supplier_id", s.id),
+      supabase.from("payments").select("id", { count: "exact", head: true }).eq("party_type", "supplier").eq("party_id", s.id),
+      supabase.from("custom_operations").select("id", { count: "exact", head: true }).eq("party_type", "supplier").eq("party_id", s.id),
+    ]);
+    const total = (purchCount || 0) + (payCount || 0) + (opsCount || 0);
+    if (total > 0) {
+      alert(`لا يمكن حذف "${s.name}" — له ${purchCount || 0} عملية شراء، ${payCount || 0} دفعة، ${opsCount || 0} عملية مخصصة.`);
+      return;
+    }
+    if (!confirm(`تأكيد حذف "${s.name}" نهائيًا؟`)) return;
+    await supabase.from("suppliers").delete().eq("id", s.id);
+    load();
+  }
+
+  const filtered = rows.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold, marginBottom: 4 }}>{supplier.name}</h1>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ fontSize: 13, color: COLORS.textDim }}>
-          صفحة المورد {supplier.default_price ? `· السعر الثابت: ${supplier.default_price}` : ""}
-        </div>
-        <button
-          onClick={downloadPDF}
-          disabled={pdfLoading}
-          style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: pdfLoading ? 0.6 : 1 }}
-        >
-          {pdfLoading ? "⏳ جاري التجهيز…" : "📄 تحميل PDF"}
+        <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold }}>الموردون</h1>
+        <button onClick={() => setShowAdd(!showAdd)} style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700 }}>
+          + إضافة
         </button>
       </div>
 
-      <div style={{ background: COLORS.panel, borderRadius: 14, padding: 16, marginBottom: 16, border: `1px solid ${COLORS.border}` }}>
-        <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4 }}>إجمالي المشتريات</div>
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10, color: COLORS.text }}>{money(balance.totalAmount + balance.opening + balance.customOpsEffect)}</div>
-        <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4 }}>المدفوع</div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold, marginBottom: 10 }}>{money(balance.paidInPurchases + balance.totalPayments)}</div>
-        <div style={{ fontSize: 15, fontWeight: 800, color: dir.icon === "🔴" ? COLORS.red : "#3EBD8C" }}>
-          {dir.icon} {dir.text}
-          {dir.amount ? `: ${money(dir.amount)}` : ""}
-        </div>
-      </div>
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="🔍 بحث بالاسم..."
+        style={{ width: "100%", padding: 12, borderRadius: 10, border: `1.5px solid ${COLORS.border}`, marginBottom: 14, boxSizing: "border-box", background: COLORS.panelLight, color: COLORS.text, fontSize: 14 }}
+      />
 
-      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, color: COLORS.text }}>العمليات</h2>
-      {timeline.length === 0 ? (
-        <div style={{ color: COLORS.textDim }}>لا توجد عمليات بعد.</div>
+      {showAdd && (
+        <div style={{ background: COLORS.panel, padding: 14, borderRadius: 12, marginBottom: 14, border: `1px solid ${COLORS.border}` }}>
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="اسم المورد"
+            style={{ width: "100%", padding: 10, borderRadius: 8, border: `1.5px solid ${COLORS.border}`, marginBottom: 8, boxSizing: "border-box", background: COLORS.panelLight, color: COLORS.text }}
+          />
+          <input
+            value={newPrice}
+            onChange={(e) => setNewPrice(e.target.value)}
+            placeholder="السعر الثابت (اختياري)"
+            type="number"
+            style={{ width: "100%", padding: 10, borderRadius: 8, border: `1.5px solid ${COLORS.border}`, marginBottom: 8, boxSizing: "border-box", background: COLORS.panelLight, color: COLORS.text }}
+          />
+          <button onClick={addSupplier} style={{ width: "100%", background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 8, padding: 10, fontWeight: 700 }}>
+            حفظ
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ color: COLORS.textDim }}>جاري التحميل…</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ color: COLORS.textDim }}>{search ? "لا نتائج مطابقة." : "لا يوجد موردون بعد."}</div>
       ) : (
-        timeline.map((item) => {
-          const docs = docsMap[item.data.op_number] || [];
-          if (item.kind === "purchase") {
-            const p = item.data;
-            return (
-              <div key={"p" + p.id} style={{ background: COLORS.panel, borderRadius: 10, padding: 12, marginBottom: 8, border: `1px solid ${COLORS.border}`, fontSize: 13 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <b style={{ color: COLORS.text }}>{fmtDate(p.date)}</b>
-                  <span style={{ color: COLORS.textDim }}>{p.products?.name || ""}</span>
-                </div>
-                <div style={{ color: COLORS.text }}>
-                  {p.description || (p.quantity ? `${p.quantity} لتر × ${p.unit_price}` : "")} — {money(p.amount)}
-                </div>
-                {p.notes && <div style={{ color: COLORS.textDim, marginTop: 4 }}>{p.notes}</div>}
-                {docs.length > 0 && (
-                  <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {docs.map((d) => (
-                      <a key={d.id} href={d.file_url} target="_blank" rel="noreferrer" style={{ color: COLORS.gold, fontSize: 11, textDecoration: "underline" }}>
-                        📎 عرض المستند
-                      </a>
-                    ))}
-                  </div>
-                )}
+        filtered.map((s) => (
+          <a key={s.id} href={`/suppliers/${s.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: COLORS.panel, borderRadius: 12, padding: 14, marginBottom: 10, border: `1px solid ${COLORS.border}` }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: COLORS.text }}>{s.name}</div>
+              <div style={{ fontSize: 13, color: COLORS.textDim, marginTop: 4 }}>
+                {s.icon} {s.text}
+                {s.amount ? `: ${money(s.amount)}` : ""}
               </div>
-            );
-          }
-          const o = item.data;
-          const isAdd = o.effect > 0;
-          return (
-            <div key={"c" + o.id} style={{ background: COLORS.panel, borderRadius: 10, padding: 12, marginBottom: 8, border: `1px solid ${isAdd ? "#3EBD8C" : COLORS.red}`, fontSize: 13 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <b style={{ color: COLORS.gold }}>⭐ {o.type_name}</b>
-                <span style={{ color: COLORS.textDim }}>{fmtDate(o.date)}</span>
-              </div>
-              <div style={{ color: isAdd ? "#3EBD8C" : COLORS.red, fontWeight: 700 }}>
-                {isAdd ? "+" : "-"} {money(o.amount)}
-              </div>
-              {o.description && <div style={{ color: COLORS.textDim, marginTop: 4 }}>{o.description}</div>}
-              {o.reference_number && <div style={{ color: COLORS.textDim, marginTop: 2, fontSize: 11 }}>مرجع: {o.reference_number}</div>}
-              {docs.length > 0 && (
-                <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {docs.map((d) => (
-                    <a key={d.id} href={d.file_url} target="_blank" rel="noreferrer" style={{ color: COLORS.gold, fontSize: 11, textDecoration: "underline" }}>
-                      📎 عرض المستند
-                    </a>
-                  ))}
-                </div>
-              )}
             </div>
-          );
-        })
+            <button onClick={(e) => tryDelete(e, s)} style={{ background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>
+              حذف
+            </button>
+          </a>
+        ))
       )}
     </div>
   );
