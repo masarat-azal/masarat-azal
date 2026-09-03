@@ -36,13 +36,11 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
     }
 
     // قائمة نماذج مرتبة من الأحدث/الأسرع، يجرّبها الخادم بالترتيب حتى ينجح أحدها
-    const models = [
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
-      "gemini-flash-latest",
-      "gemini-2.5-pro",
-      "gemini-2.0-flash-001",
-    ];
+  const models = [
+  "gemini-flash-latest",
+  "gemini-3-flash-preview",
+  "gemini-2.5-flash",
+];
     const errors = [];
 
     for (const model of models) {
