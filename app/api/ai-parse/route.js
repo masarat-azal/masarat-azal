@@ -7,12 +7,12 @@ export async function POST(req) {
       return Response.json({ error: "GEMINI_API_KEY غير مضبوط في إعدادات الخادم" }, { status: 500 });
     }
 
-    const basePrompt = `أنت مساعد محاسبي لشركة نقل ديزل. حلّل ${image ? "الصورة أو المستند المرفق (فاتورة أو إيصال أو سند)" : "الرسالة التالية"} وأخرج JSON فقط بلا أي نص إضافي، بلا علامات ماركداون وبلا شرح.
+    const basePrompt = `أنت مساعد محاسبي لشركة نقل ديزل. حلّل ${image ? "الصورة المرفقة (فاتورة أو إيصال أو سند)" : "الرسالة التالية"} وأخرج JSON فقط بلا أي نص إضافي، بلا علامات ماركداون وبلا شرح.
 
-العملاء المعروفون: ${(customers || []).join("، ") || "—"}
-الموردون المعروفون: ${(suppliers || []).join("، ") || "—"}
-الأصناف المعروفة: ${(products || []).join("، ") || "—"}
-المواقع المعروفة: ${(locations || []).join("، ") || "—"}
+العملاء المعروفون: ${customers.join("، ") || "—"}
+الموردون المعروفون: ${suppliers.join("، ") || "—"}
+الأصناف المعروفة: ${products.join("، ") || "—"}
+المواقع المعروفة: ${locations.join("، ") || "—"}
 تاريخ اليوم: ${new Date().toISOString().slice(0, 10)}
 
 أخرج بالضبط هذا الشكل:
@@ -22,13 +22,12 @@ export async function POST(req) {
  "invoice_number":"","notes":"","missing":[]}
 
 قواعد صارمة:
-- لا تخترع رقما أو اسمًا غير مذكور صراحة أو غير واضح في الصورة. الحقل غير الواضح = null، واذكره في "missing".
+- لا تخترع رقمًا أو اسمًا غير مذكور صراحة أو غير واضح في الصورة. الحقل غير الواضح = null، واذكره في "missing".
 - إن كانت الصورة تحتوي شعار شركة مطبوعًا في الترويسة، استخدم اسم تلك الشركة كـ"party_name" لا أي اسم مكتوب بخط اليد.
 - طابق أسماء الأطراف والأصناف والمواقع مع القوائم أعلاه ولو اختلف الإملاء قليلًا.
 - بلا تاريخ مذكور = تاريخ اليوم.
 - "20 ألف" = 20000.
 - الخط اليدوي غير الواضح: لا تخمّن رقمًا.
-- لو كانت الرسالة طلب كشف/تقرير (مثل "كشف معاينة" أو "أرسل لي كشف")، وليست عملية فعلية، اجعل type="غير_مفهوم".
 ${!image ? `\nالرسالة: ${text}` : ""}`;
 
     const parts = [{ text: basePrompt }];
@@ -36,37 +35,63 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
       parts.push({ inline_data: { mime_type: mimeType || "image/jpeg", data: image } });
     }
 
-    const models = ["gemini-flash-latest", "gemini-3-flash-preview", "gemini-2.5-flash"];
-    const errors = [];
+    // ⚠️ gemini-2.0-flash تم إيقافه نهائيًا من جوجل (يرجّع 404 دائمًا) — تم حذفه من القائمة.
+    // gemini-flash-latest يشير تلقائيًا لأحدث نموذج Flash مستقر، فيقلل حاجتنا لتحديث الأسماء يدويًا مستقبلًا.
+    const models = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest"];
+    const MAX_RETRIES_PER_MODEL = 2;
+    const RETRY_DELAY_MS = 1200;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let lastErr = "";
 
     for (const model of models) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: [{ parts }] }),
-          }
-        );
+      for (let attempt = 0; attempt <= MAX_RETRIES_PER_MODEL; attempt++) {
+        let res;
+        try {
+          res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ contents: [{ parts }] }),
+            }
+          );
+        } catch (netErr) {
+          lastErr = `تعذر الاتصال [${model}]: ${netErr.message}`;
+          await sleep(RETRY_DELAY_MS);
+          continue;
+        }
+
         if (res.ok) {
           const data = await res.json();
           const raw = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
           const cleaned = raw.replace(/```json|```/g, "").trim();
           const match = cleaned.match(/\{[\s\S]*\}/);
           if (!match) {
-            errors.push(`[${model}] رد بلا JSON صالح`);
-            continue;
+            return Response.json({ error: "لم يفهم الذكاء الاصطناعي المحتوى" }, { status: 422 });
           }
           return Response.json(JSON.parse(match[0]));
         }
-        const errText = await res.text();
-        errors.push(`[${model}] HTTP ${res.status}: ${errText.slice(0, 120)}`);
-      } catch (fetchErr) {
-        errors.push(`[${model}] خطأ اتصال: ${fetchErr.message}`);
+
+        lastErr = `HTTP ${res.status} [${model}] ${(await res.text()).slice(0, 150)}`;
+
+        // ازدحام مؤقت (429/503): أعد المحاولة على نفس النموذج بتأخير متزايد قبل الانتقال للتالي
+        if (res.status === 429 || res.status === 503) {
+          if (attempt < MAX_RETRIES_PER_MODEL) {
+            await sleep(RETRY_DELAY_MS * (attempt + 1));
+            continue;
+          }
+          break; // استنفدنا المحاولات على هذا النموذج -> جرّب النموذج التالي
+        }
+
+        // النموذج غير موجود/متوقف -> جرّب النموذج التالي فورًا
+        if (res.status === 404) break;
+
+        // أي خطأ آخر (مثل مفتاح غير صحيح) -> توقف فورًا، إعادة المحاولة لن تفيد
+        return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
       }
     }
-    return Response.json({ error: "تعذر الوصول لأي نموذج ذكاء اصطناعي متاح:\n" + errors.join("\n") }, { status: 502 });
+
+    return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي بعد عدة محاولات: " + lastErr }, { status: 502 });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
