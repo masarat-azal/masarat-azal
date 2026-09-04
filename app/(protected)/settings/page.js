@@ -43,7 +43,7 @@ export default function SettingsPage() {
   }
 
   async function deleteProduct(id) {
-    if (!confirm("Ø­Ø°Ù ÙØ°Ø§ Ø§ÙØµÙÙØ")) return;
+    if (!confirm("حذف هذا الصنف؟")) return;
     await supabase.from("products").delete().eq("id", id);
     load();
   }
@@ -75,7 +75,7 @@ export default function SettingsPage() {
   }
 
   async function deleteLocation(id) {
-    if (!confirm("Ø­Ø°Ù ÙØ°Ø§ Ø§ÙÙÙÙØ¹Ø")) return;
+    if (!confirm("حذف هذا الموقع؟")) return;
     await supabase.from("locations").delete().eq("id", id);
     load();
   }
@@ -86,12 +86,12 @@ export default function SettingsPage() {
     try {
       const party = await ensureParty(obType, obParty.trim());
       await supabase.from("opening_balances").insert({ party_type: obType, party_id: party.id, amount: Number(obAmount) });
-      setObMsg("ØªÙ Ø§ÙØ­ÙØ¸ Ø¨ÙØ¬Ø§Ø­");
+      setObMsg("تم الحفظ بنجاح");
       setObParty("");
       setObAmount("");
       load();
     } catch (e) {
-      setObMsg("Ø®Ø·Ø£: " + e.message);
+      setObMsg("خطأ: " + e.message);
     }
   }
 
@@ -116,78 +116,78 @@ export default function SettingsPage() {
 
   async function deleteOpType(t) {
     if (t.system_key) {
-      alert("ÙØ§ ÙÙÙÙ Ø­Ø°Ù ÙÙØ¹ Ø¹ÙÙÙØ© Ø£Ø³Ø§Ø³Ù â ÙÙÙÙÙ ØªØ¹Ø¯ÙÙ Ø§Ø³ÙÙ Ø£Ù Ø±ÙØ²Ù ÙÙØ·.");
+      alert("لا يمكن حذف نوع عملية أساسي — يمكنك تعديل اسمه أو رمزه فقط.");
       return;
     }
-    if (!confirm(`Ø­Ø°Ù ÙÙØ¹ Ø§ÙØ¹ÙÙÙØ© "${t.name}"Ø`)) return;
+    if (!confirm(`حذف نوع العملية "${t.name}"؟`)) return;
     await supabase.from("operation_types").delete().eq("id", t.id);
     load();
   }
 
-  if (loading) return <div style={{ color: COLORS.textDim }}>Ø¬Ø§Ø±Ù Ø§ÙØªØ­ÙÙÙ...</div>;
+  if (loading) return <div style={{ color: COLORS.textDim }}>جاري التحميل...</div>;
 
   return (
     <div>
-      <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold, marginBottom: 16 }}>Ø§ÙØ¥Ø¹Ø¯Ø§Ø¯Ø§Øª</h1>
+      <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold, marginBottom: 16 }}>الإعدادات</h1>
 
-      <Section title="Ø£ÙÙØ§Ø¹ Ø§ÙØ¹ÙÙÙØ§Øª">
-        <Hint>Ø§ÙØ§Ø³Ù ÙØ§ÙØ±ÙØ² ÙØ§Ø¨ÙØ§Ù ÙÙØªØ¹Ø¯ÙÙ. Ø§ÙØ±ÙØ² ÙØ¸ÙØ± ÙÙ Ø¨Ø¯Ø§ÙØ© Ø±ÙÙ ÙÙ Ø¹ÙÙÙØ© ÙÙ ÙØ°Ø§ Ø§ÙÙÙØ¹.</Hint>
+      <Section title="أنواع العمليات">
+        <Hint>الاسم والرمز قابلان للتعديل. الرمز يظهر في بداية رقم كل عملية من هذا النوع.</Hint>
         {opTypes.map((t) => (
           <div key={t.id} style={rowStyle}>
             {editingType?.id === t.id ? (
               <div style={{ display: "flex", gap: 6, width: "100%", alignItems: "center" }}>
                 <input value={editingType.name} onChange={(e) => setEditingType({ ...editingType, name: e.target.value })} style={{ ...inputStyle, marginBottom: 0, flex: 2 }} />
                 <input value={editingType.code} onChange={(e) => setEditingType({ ...editingType, code: e.target.value.toUpperCase() })} style={{ ...inputStyle, marginBottom: 0, width: 70 }} />
-                <button onClick={saveTypeEdit} style={smallBtn}>Ø­ÙØ¸</button>
-                <button onClick={() => setEditingType(null)} style={smallBtnGhost}>Ø¥ÙØºØ§Ø¡</button>
+                <button onClick={saveTypeEdit} style={smallBtn}>حفظ</button>
+                <button onClick={() => setEditingType(null)} style={smallBtnGhost}>إلغاء</button>
               </div>
             ) : (
               <>
                 <span style={{ color: COLORS.text, fontSize: 13 }}>
                   {t.name}
-                  {t.system_key ? <span style={{ color: COLORS.textDim, fontSize: 11 }}> (Ø£Ø³Ø§Ø³Ù)</span> : null}
+                  {t.system_key ? <span style={{ color: COLORS.textDim, fontSize: 11 }}> (أساسي)</span> : null}
                 </span>
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ color: COLORS.gold, fontWeight: 700, fontSize: 12 }}>{t.code || "â"}</span>
-                  <button onClick={() => setEditingType(t)} style={smallBtnGhost}>ØªØ¹Ø¯ÙÙ</button>
-                  {!t.system_key && <button onClick={() => deleteOpType(t)} style={smallBtnDanger}>Ø­Ø°Ù</button>}
+                  <span style={{ color: COLORS.gold, fontWeight: 700, fontSize: 12 }}>{t.code || "—"}</span>
+                  <button onClick={() => setEditingType(t)} style={smallBtnGhost}>تعديل</button>
+                  {!t.system_key && <button onClick={() => deleteOpType(t)} style={smallBtnDanger}>حذف</button>}
                 </span>
               </>
             )}
           </div>
         ))}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <input value={newOpName} onChange={(e) => setNewOpName(e.target.value)} placeholder="Ø§Ø³Ù Ø§ÙÙÙØ¹ Ø§ÙØ¬Ø¯ÙØ¯" style={{ ...inputStyle, marginBottom: 0, flex: 2 }} />
-          <input value={newOpCode} onChange={(e) => setNewOpCode(e.target.value)} placeholder="Ø§ÙØ±ÙØ²" style={{ ...inputStyle, marginBottom: 0, width: 80 }} />
-          <button onClick={addOpType} style={btnStyle}>Ø¥Ø¶Ø§ÙØ©</button>
+          <input value={newOpName} onChange={(e) => setNewOpName(e.target.value)} placeholder="اسم النوع الجديد" style={{ ...inputStyle, marginBottom: 0, flex: 2 }} />
+          <input value={newOpCode} onChange={(e) => setNewOpCode(e.target.value)} placeholder="الرمز" style={{ ...inputStyle, marginBottom: 0, width: 80 }} />
+          <button onClick={addOpType} style={btnStyle}>إضافة</button>
         </div>
       </Section>
 
-      <Section title="Ø§ÙØ£ØµÙØ§Ù">
+      <Section title="الأصناف">
         {lists.products.map((p) => (
           <div key={p.id} style={rowStyle}>
             <span style={{ color: COLORS.text, fontSize: 13 }}>{p.name}</span>
-            <button onClick={() => deleteProduct(p.id)} style={smallBtnDanger}>Ø­Ø°Ù</button>
+            <button onClick={() => deleteProduct(p.id)} style={smallBtnDanger}>حذف</button>
           </div>
         ))}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <input value={newProduct} onChange={(e) => setNewProduct(e.target.value)} placeholder="Ø§Ø³Ù Ø§ÙØµÙÙ Ø§ÙØ¬Ø¯ÙØ¯" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
-          <button onClick={addProduct} style={btnStyle}>Ø¥Ø¶Ø§ÙØ©</button>
+          <input value={newProduct} onChange={(e) => setNewProduct(e.target.value)} placeholder="اسم الصنف الجديد" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+          <button onClick={addProduct} style={btnStyle}>إضافة</button>
         </div>
       </Section>
 
-      <Section title="Ø§ÙÙÙØ§ÙØ¹ ÙØ§ÙØ£Ø³Ø¹Ø§Ø±">
-        <Hint>Ø§ÙØ³Ø¹Ø± ÙÙØ§ ÙÙÙÙØ£ ØªÙÙØ§Ø¦ÙÙØ§ ÙÙ Ø¨Ø·Ø§ÙØ© Ø§ÙØ¹ÙÙÙØ© Ø¹ÙØ¯ Ø§Ø®ØªÙØ§Ø± ÙØ°Ø§ Ø§ÙÙÙÙØ¹. Ø§ÙÙÙÙØ§Øª Ø§ÙÙÙØªØ§Ø­ÙØ© ØªØ³Ø§Ø¹Ø¯ Ø§ÙØ¨ÙØª Ø¹ÙÙ Ø§ÙØªØ¹Ø±Ù Ø¹ÙÙ Ø§ÙÙÙÙØ¹ ÙÙ Ø§ÙØ³ÙØ¯Ø§Øª.</Hint>
+      <Section title="المواقع والأسعار">
+        <Hint>السعر هنا يُملأ تلقائيًا في بطاقة العملية عند اختيار هذا الموقع. الكلمات المفتاحية تساعد البوت على التعرف على الموقع من السندات.</Hint>
         {lists.locations.map((l) => (
           <div key={l.id} style={{ ...rowStyle, flexDirection: "column", alignItems: "stretch", gap: 6 }}>
             {editingLoc?.id === l.id ? (
               <>
-                <input value={editingLoc.name} onChange={(e) => setEditingLoc({ ...editingLoc, name: e.target.value })} placeholder="Ø§Ø³Ù Ø§ÙÙÙÙØ¹" style={{ ...inputStyle, marginBottom: 0 }} />
-                <input value={editingLoc.keywordsText} onChange={(e) => setEditingLoc({ ...editingLoc, keywordsText: e.target.value })} placeholder="ÙÙÙØ§Øª ÙÙØªØ§Ø­ÙØ© ÙÙØµÙÙØ© Ø¨ÙØ§ØµÙØ©" style={{ ...inputStyle, marginBottom: 0 }} />
-                <input value={editingLoc.unit_price ?? ""} onChange={(e) => setEditingLoc({ ...editingLoc, unit_price: e.target.value })} type="number" placeholder="Ø§ÙØ³Ø¹Ø±" style={{ ...inputStyle, marginBottom: 0 }} />
+                <input value={editingLoc.name} onChange={(e) => setEditingLoc({ ...editingLoc, name: e.target.value })} placeholder="اسم الموقع" style={{ ...inputStyle, marginBottom: 0 }} />
+                <input value={editingLoc.keywordsText} onChange={(e) => setEditingLoc({ ...editingLoc, keywordsText: e.target.value })} placeholder="كلمات مفتاحية مفصولة بفاصلة" style={{ ...inputStyle, marginBottom: 0 }} />
+                <input value={editingLoc.unit_price ?? ""} onChange={(e) => setEditingLoc({ ...editingLoc, unit_price: e.target.value })} type="number" placeholder="السعر" style={{ ...inputStyle, marginBottom: 0 }} />
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={saveLocationEdit} style={{ ...smallBtn, flex: 1 }}>Ø­ÙØ¸</button>
-                  <button onClick={() => setEditingLoc(null)} style={{ ...smallBtnGhost, flex: 1 }}>Ø¥ÙØºØ§Ø¡</button>
+                  <button onClick={saveLocationEdit} style={{ ...smallBtn, flex: 1 }}>حفظ</button>
+                  <button onClick={() => setEditingLoc(null)} style={{ ...smallBtnGhost, flex: 1 }}>إلغاء</button>
                 </div>
               </>
             ) : (
@@ -195,36 +195,36 @@ export default function SettingsPage() {
                 <div>
                   <div style={{ color: COLORS.text, fontSize: 13, fontWeight: 700 }}>
                     {l.name}
-                    {l.unit_price ? <span style={{ color: COLORS.gold, marginRight: 8 }}>â {l.unit_price} Ø±ÙØ§Ù</span> : <span style={{ color: COLORS.red, fontSize: 11, marginRight: 8 }}>(Ø¨ÙØ§ Ø³Ø¹Ø±)</span>}
+                    {l.unit_price ? <span style={{ color: COLORS.gold, marginRight: 8 }}>— {l.unit_price} ريال</span> : <span style={{ color: COLORS.red, fontSize: 11, marginRight: 8 }}>(بلا سعر)</span>}
                   </div>
-                  {l.keywords?.length ? <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 3 }}>{l.keywords.join(" Â· ")}</div> : null}
+                  {l.keywords?.length ? <div style={{ color: COLORS.textDim, fontSize: 11, marginTop: 3 }}>{l.keywords.join(" · ")}</div> : null}
                 </div>
                 <span style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => setEditingLoc({ ...l, keywordsText: (l.keywords || []).join(", ") })} style={smallBtnGhost}>ØªØ¹Ø¯ÙÙ</button>
-                  <button onClick={() => deleteLocation(l.id)} style={smallBtnDanger}>Ø­Ø°Ù</button>
+                  <button onClick={() => setEditingLoc({ ...l, keywordsText: (l.keywords || []).join(", ") })} style={smallBtnGhost}>تعديل</button>
+                  <button onClick={() => deleteLocation(l.id)} style={smallBtnDanger}>حذف</button>
                 </span>
               </div>
             )}
           </div>
         ))}
         <div style={{ marginTop: 12 }}>
-          <input value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="Ø§Ø³Ù Ø§ÙÙÙÙØ¹" style={inputStyle} />
-          <input value={newKeywords} onChange={(e) => setNewKeywords(e.target.value)} placeholder="ÙÙÙØ§Øª ÙÙØªØ§Ø­ÙØ© ÙÙØµÙÙØ© Ø¨ÙØ§ØµÙØ© (ÙØ«Ù: Neom, NEOM)" style={inputStyle} />
-          <input value={newLocPrice} onChange={(e) => setNewLocPrice(e.target.value)} type="number" placeholder="Ø§ÙØ³Ø¹Ø± Ø§ÙÙØ±Ø¯Ù ÙÙØ°Ø§ Ø§ÙÙÙÙØ¹" style={inputStyle} />
-          <button onClick={addLocation} style={{ ...btnStyle, width: "100%", padding: 10 }}>Ø¥Ø¶Ø§ÙØ© ÙÙÙØ¹</button>
+          <input value={newLocation} onChange={(e) => setNewLocation(e.target.value)} placeholder="اسم الموقع" style={inputStyle} />
+          <input value={newKeywords} onChange={(e) => setNewKeywords(e.target.value)} placeholder="كلمات مفتاحية مفصولة بفاصلة (مثل: Neom, NEOM)" style={inputStyle} />
+          <input value={newLocPrice} onChange={(e) => setNewLocPrice(e.target.value)} type="number" placeholder="السعر الفردي لهذا الموقع" style={inputStyle} />
+          <button onClick={addLocation} style={{ ...btnStyle, width: "100%", padding: 10 }}>إضافة موقع</button>
         </div>
       </Section>
 
-      <Section title="Ø±ØµÙØ¯ Ø§ÙØªØªØ§Ø­Ù">
-        <Hint>Ø£Ø¯Ø®Ù ÙÙÙØ© Ø³Ø§ÙØ¨Ø© Ø¥Ù ÙØ§Ù Ø§ÙØ±ØµÙØ¯ ÙØ³ØªØ­ÙÙØ§ Ø¹ÙÙÙ.</Hint>
+      <Section title="رصيد افتتاحي">
+        <Hint>أدخل قيمة سالبة إن كان الرصيد مستحقًا عليك.</Hint>
         <select value={obType} onChange={(e) => setObType(e.target.value)} style={inputStyle}>
-          <option value="customer">Ø¹ÙÙÙ</option>
-          <option value="supplier">ÙÙØ±Ø¯</option>
+          <option value="customer">عميل</option>
+          <option value="supplier">مورد</option>
         </select>
-        <input value={obParty} onChange={(e) => setObParty(e.target.value)} placeholder="Ø§Ø³Ù Ø§ÙØ·Ø±Ù" style={inputStyle} />
-        <input value={obAmount} onChange={(e) => setObAmount(e.target.value)} placeholder="Ø§ÙÙØ¨ÙØº" type="number" style={inputStyle} />
+        <input value={obParty} onChange={(e) => setObParty(e.target.value)} placeholder="اسم الطرف" style={inputStyle} />
+        <input value={obAmount} onChange={(e) => setObAmount(e.target.value)} placeholder="المبلغ" type="number" style={inputStyle} />
         {obMsg && <div style={{ fontSize: 13, marginBottom: 8, color: COLORS.text }}>{obMsg}</div>}
-        <button onClick={saveOpeningBalance} style={{ ...btnStyle, width: "100%", padding: 10 }}>Ø­ÙØ¸ Ø§ÙØ±ØµÙØ¯ Ø§ÙØ§ÙØªØªØ§Ø­Ù</button>
+        <button onClick={saveOpeningBalance} style={{ ...btnStyle, width: "100%", padding: 10 }}>حفظ الرصيد الافتتاحي</button>
       </Section>
     </div>
   );
