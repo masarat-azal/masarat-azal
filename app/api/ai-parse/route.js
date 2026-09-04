@@ -3,7 +3,7 @@ export async function POST(req) {
     const body = await req.json();
     const { text, image, mimeType, customers = [], suppliers = [], products = [], locations = [] } = body;
     const key = process.env.GEMINI_API_KEY;
-    
+
     if (!key) {
       return Response.json({ error: "GEMINI_API_KEY غير مضبوط في إعدادات الخادم" }, { status: 500 });
     }
@@ -36,14 +36,22 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
       parts.push({ inlineData: { mimeType: mimeType || "image/jpeg", data: image } });
     }
 
-    // أسماء النماذج الرسمية والمستقرة حالياً من Google Gemini
-    const models = ["gemini-1.5-flash", "gemini-1.5-pro"];
+    // القائمة المحددة من طرفك
+    var GEMINI_MODELS = [
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
+      'gemini-3-flash-preview',
+      'gemini-2.5-flash',
+      'gemini-flash-latest'
+    ];
+
     const MAX_RETRIES_PER_MODEL = 2;
     const RETRY_DELAY_MS = 1200;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     let lastErr = "";
 
-    for (const model of models) {
+    for (const model of GEMINI_MODELS) {
       for (let attempt = 0; attempt <= MAX_RETRIES_PER_MODEL; attempt++) {
         let res;
         try {
@@ -55,7 +63,7 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
               body: JSON.stringify({
                 contents: [{ parts }],
                 generationConfig: {
-                  responseMimeType: "application/json" // إجبار النموذج على إرجاع JSON مستقر
+                  responseMimeType: "application/json"
                 }
               }),
             }
@@ -85,10 +93,10 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
             await sleep(RETRY_DELAY_MS * (attempt + 1));
             continue;
           }
-          break; 
+          break;
         }
 
-        // إذا كان النموذج غير موجود تنقل للنموذج التالي مباشرة
+        // إذا كان النموذج غير موجود (404) جرب النموذج التالي مباشرة في القائمة
         if (res.status === 404) break;
 
         return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
