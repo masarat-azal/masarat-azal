@@ -4,14 +4,17 @@ import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../lib/AuthProvider";
 import { COLORS } from "../lib/theme";
+import FloatingChat from "./FloatingChat";
 
 const NAV = [
   { href: "/dashboard", label: "الرئيسية", icon: "🏠" },
   { href: "/customers", label: "العملاء", icon: "👥" },
   { href: "/suppliers", label: "الموردون", icon: "🚚" },
-  { href: "/operations/new", label: "عملية جديدة", icon: "➕" },
+  { href: "/sales", label: "المبيعات", icon: "📈" },
+  { href: "/purchases", label: "المشتريات", icon: "📉" },
   { href: "/expenses", label: "المصروفات", icon: "🧾" },
   { href: "/settings", label: "الإعدادات", icon: "⚙️" },
+  { href: "/account-settings", label: "إعدادات الحساب", icon: "👤" },
 ];
 
 export default function AppShell({ children }) {
@@ -46,7 +49,7 @@ export default function AppShell({ children }) {
         <div style={{ fontWeight: 800, fontSize: 18, color: COLORS.gold }}>مسارات أزل</div>
         <div style={{ fontSize: 11, color: COLORS.textDim, marginTop: 2 }}>Masarat Azal</div>
       </div>
-      <div style={{ padding: 12, flex: 1 }}>
+      <div style={{ padding: 12, flex: 1, overflowY: "auto" }}>
         {NAV.map((n) => {
           const active = pathname === n.href;
           return (
@@ -62,7 +65,7 @@ export default function AppShell({ children }) {
                 marginBottom: 6,
                 fontSize: 14,
                 fontWeight: active ? 700 : 500,
-                background: active ? "rgba(212,175,55,0.12)" : "transparent",
+                background: active ? COLORS.goldSoft : "transparent",
                 color: active ? COLORS.gold : COLORS.text,
                 borderRight: active ? `3px solid ${COLORS.gold}` : "3px solid transparent",
               }}
@@ -78,16 +81,7 @@ export default function AppShell({ children }) {
             await supabase.auth.signOut();
             router.push("/login");
           }}
-          style={{
-            width: "100%",
-            background: "transparent",
-            color: COLORS.textDim,
-            border: `1px solid ${COLORS.border}`,
-            borderRadius: 10,
-            padding: "10px",
-            fontSize: 13,
-            cursor: "pointer",
-          }}
+          style={{ width: "100%", background: "transparent", color: COLORS.textDim, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "10px", fontSize: 13, cursor: "pointer" }}
         >
           تسجيل الخروج
         </button>
@@ -97,37 +91,20 @@ export default function AppShell({ children }) {
 
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, display: "flex" }}>
-      <div
-        className="masarat-sidebar-desktop"
-        style={{ width: 230, background: COLORS.panel, display: "none", flexDirection: "column", position: "sticky", top: 0, height: "100vh" }}
-      >
+      <div className="masarat-sidebar-desktop" style={{ width: 230, background: COLORS.panel, display: "none", flexDirection: "column", position: "sticky", top: 0, height: "100vh" }}>
         {SidebarContent}
       </div>
 
       {drawerOpen && <div onClick={() => setDrawerOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 40 }} />}
       <div
         className="masarat-drawer"
-        style={{
-          position: "fixed",
-          top: 0,
-          right: drawerOpen ? 0 : "-260px",
-          width: 230,
-          height: "100vh",
-          background: COLORS.panel,
-          display: "flex",
-          flexDirection: "column",
-          transition: "right 0.25s ease",
-          zIndex: 50,
-        }}
+        style={{ position: "fixed", top: 0, right: drawerOpen ? 0 : "-260px", width: 230, height: "100vh", background: COLORS.panel, display: "flex", flexDirection: "column", transition: "right 0.25s ease", zIndex: 50 }}
       >
         {SidebarContent}
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          className="masarat-topbar"
-          style={{ display: "none", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${COLORS.border}`, background: COLORS.panel }}
-        >
+        <div className="masarat-topbar" style={{ display: "none", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${COLORS.border}`, background: COLORS.panel }}>
           <button onClick={() => setDrawerOpen(true)} style={{ background: "transparent", border: "none", color: COLORS.gold, fontSize: 22, cursor: "pointer" }}>
             ☰
           </button>
@@ -135,6 +112,8 @@ export default function AppShell({ children }) {
         </div>
         <div style={{ padding: 18, maxWidth: 1100, margin: "0 auto" }}>{children}</div>
       </div>
+
+      <FloatingChat />
 
       <style>{`
         @media (min-width: 860px) {
