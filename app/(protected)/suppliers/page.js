@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 import { COLORS, money } from "../../../lib/theme";
-import { getSupplierBalance, balanceDirection } from "../../../lib/dataHelpers";
+import { getSupplierBalance, balanceDirection, countPartyOperations, deletePartyCascade } from "../../../lib/dataHelpers";
 
 export default function SuppliersPage() {
   const [rows, setRows] = useState([]);
@@ -41,19 +41,18 @@ export default function SuppliersPage() {
   async function tryDelete(e, s) {
     e.preventDefault();
     e.stopPropagation();
-    const [{ count: purchCount }, { count: payCount }, { count: opsCount }] = await Promise.all([
-      supabase.from("purchases").select("id", { count: "exact", head: true }).eq("supplier_id", s.id),
-      supabase.from("payments").select("id", { count: "exact", head: true }).eq("party_type", "supplier").eq("party_id", s.id),
-      supabase.from("custom_operations").select("id", { count: "exact", head: true }).eq("party_type", "supplier").eq("party_id", s.id),
-    ]);
-    const total = (purchCount || 0) + (payCount || 0) + (opsCount || 0);
-    if (total > 0) {
-      alert(`لا يمكن حذف "${s.name}" — له ${purchCount || 0} عملية شراء، ${payCount || 0} دفعة، ${opsCount || 0} عملية مخصصة.`);
-      return;
+    const counts = await countPartyOperations("supplier", s.id);
+    const msg =
+      counts.total > 0
+        ? `تحذير: سيتم حذف "${s.name}" مع كل عملياته نهائيًا:\n\n· ${counts.main} عملية شراء\n· ${counts.payments} دفعة\n· ${counts.custom} عملية مخصصة\n\nهذا الإجراء لا يمكن التراجع عنه. هل أنت متأكد؟`
+        : `تأكيد حذف "${s.name}" نهائيًا؟`;
+    if (!confirm(msg)) return;
+    try {
+      await deletePartyCascade("supplier", s.id);
+      load();
+    } catch (err) {
+      alert("تعذر الحذف: " + err.message);
     }
-    if (!confirm(`تأكيد حذف "${s.name}" نهائيًا؟`)) return;
-    await supabase.from("suppliers").delete().eq("id", s.id);
-    load();
   }
 
   const filtered = rows.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
