@@ -24,6 +24,8 @@ export default function SupplierDetail() {
   const [loading, setLoading] = useState(true);
   const [showPicker, setShowPicker] = useState(false);
   const [textualMsg, setTextualMsg] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [exporting, setExporting] = useState(false);
 
   async function load() {
@@ -60,20 +62,33 @@ export default function SupplierDetail() {
     load();
   }
 
+  function filterByPeriod(rows) {
+    if (!fromDate && !toDate) return rows;
+    return rows.filter((r) => {
+      const d = new Date(r.date);
+      if (fromDate && d < new Date(fromDate)) return false;
+      if (toDate && d > new Date(toDate)) return false;
+      return true;
+    });
+  }
+
   async function exportShape(shapeKey) {
     setShowPicker(false);
     setExporting(true);
     try {
       const dueTxt = `${dir.text}: ${money(dir.amount)}`;
+      const periodLabel = fromDate || toDate
+        ? `${fromDate ? new Date(fromDate).toLocaleDateString("en-GB") : "البداية"} — ${toDate ? new Date(toDate).toLocaleDateString("en-GB") : "اليوم"}`
+        : periodText;
       if (shapeKey === "textual") {
-        setTextualMsg(`📌 ${supplier.name}\nإجمالي الرصيد: ${money(Math.abs(ledger.balance))}\n${dir.icon} ${dueTxt}\nالفترة: ${periodText}`);
+        setTextualMsg(`📌 ${supplier.name}\nإجمالي الرصيد: ${money(Math.abs(ledger.balance))}\n${dir.icon} ${dueTxt}\nالفترة: ${periodLabel}`);
         setExporting(false);
         return;
       }
       if (shapeKey === "quick") {
         await generateQuickImage({
           partyName: supplier.name,
-          rows: ledger.rows.map((r) => ({ date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due) })),
+          rows: filterByPeriod(ledger.rows).map((r) => ({ date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due) })),
           totalsRows: [
             { label: "إجمالي المستحق", value: money(ledger.totalDue) },
             { label: "إجمالي المدفوع", value: money(ledger.totalPaid) },
@@ -101,7 +116,7 @@ export default function SupplierDetail() {
           { key: "total", ar: "الإجمالي", en: "Total" }, { key: "paid", ar: "المدفوع", en: "Paid" }, { key: "due", ar: "المتبقي", en: "Due" },
           { key: "bal", ar: "الرصيد", en: "Balance" }, { key: "inv", ar: "الفاتورة", en: "Invoice" }, { key: "__doc__", ar: "المستندات", en: "Docs" }, { key: "notes", ar: "ملاحظات", en: "Notes" },
         ];
-        rows = ledger.rows.map((r, i) => ({
+        rows = filterByPeriod(ledger.rows).map((r, i) => ({
           num: i + 1, op: r.op_number, date: fmtDateTime(r.date).date, party: supplier.name, type: r.op_type_name, item: r.item_name || "—",
           qty: r.qty ? Number(r.qty).toLocaleString() : "—", loc: r.location_name || "—", price: r.unit_price || "—",
           total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), bal: money(r.running_balance),
@@ -110,7 +125,7 @@ export default function SupplierDetail() {
       } else if (shapeKey === "due") {
         titleAr = "كشف الرصيد المستحق"; titleEn = "Balance Due Statement";
         columns = [{ key: "num", ar: "#", en: "#" }, { key: "date", ar: "التاريخ", en: "Date" }, { key: "op", ar: "العملية", en: "Transaction" }, { key: "amount", ar: "المبلغ", en: "Amount" }, { key: "bal", ar: "الرصيد المستحق", en: "Balance" }];
-        rows = ledger.rows.map((r, i) => ({
+        rows = filterByPeriod(ledger.rows).map((r, i) => ({
           num: i + 1,
           date: fmtDateTime(r.date).date,
           op: r.item_name ? `${r.op_type_name} ${r.item_name} ${r.qty || ""} لتر × ${r.unit_price || ""} بقيمة ${money(r.display_total)}` : `${r.op_type_name} — ${money(Math.abs(r.delta))}`,
@@ -119,18 +134,18 @@ export default function SupplierDetail() {
       } else if (shapeKey === "general1") {
         titleAr = "كشف عام 1"; titleEn = "General Statement 1";
         columns = [{ key: "num", ar: "#", en: "#" }, { key: "date", ar: "التاريخ", en: "Date" }, { key: "item", ar: "الصنف", en: "Item" }, { key: "price", ar: "السعر", en: "Price" }, { key: "total", ar: "الإجمالي", en: "Total" }, { key: "paid", ar: "المدفوع", en: "Paid" }, { key: "due", ar: "المتبقي", en: "Due" }, { key: "__doc__", ar: "المستندات", en: "Docs" }, { key: "notes", ar: "ملاحظات", en: "Notes" }];
-        rows = ledger.rows.map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), notes: r.notes || "—", docUrl: docsMap[r.op_number]?.[0]?.file_url }));
+        rows = filterByPeriod(ledger.rows).map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), notes: r.notes || "—", docUrl: docsMap[r.op_number]?.[0]?.file_url }));
       } else if (shapeKey === "lahwalayh") {
         titleAr = "كشف له وعليه"; titleEn = "Debit-Credit Statement";
         columns = [{ key: "num", ar: "#", en: "#" }, { key: "date", ar: "التاريخ", en: "Date" }, { key: "op", ar: "العملية", en: "Transaction" }, { key: "total", ar: "الإجمالي", en: "Total" }, { key: "paid", ar: "المدفوع", en: "Paid" }, { key: "due", ar: "المتبقي", en: "Due" }, { key: "inv", ar: "الفاتورة", en: "Invoice" }, { key: "notes", ar: "ملاحظات", en: "Notes" }];
-        rows = ledger.rows.map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, op: r.item_name ? `${r.op_type_name} ${r.item_name} ${r.qty || ""} لتر × ${r.unit_price || ""} بقيمة ${money(r.display_total)}` : r.op_type_name, total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), inv: r.invoice_number || "—", notes: r.notes || "—" }));
+        rows = filterByPeriod(ledger.rows).map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, op: r.item_name ? `${r.op_type_name} ${r.item_name} ${r.qty || ""} لتر × ${r.unit_price || ""} بقيمة ${money(r.display_total)}` : r.op_type_name, total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), inv: r.invoice_number || "—", notes: r.notes || "—" }));
       } else if (shapeKey === "general2") {
         titleAr = "كشف عام 2"; titleEn = "General Statement 2";
         columns = [{ key: "num", ar: "#", en: "#" }, { key: "date", ar: "التاريخ", en: "Date" }, { key: "item", ar: "الصنف", en: "Item" }, { key: "price", ar: "السعر", en: "Price" }, { key: "total", ar: "الإجمالي", en: "Total" }, { key: "paid", ar: "المدفوع", en: "Paid" }, { key: "due", ar: "المتبقي", en: "Due" }, { key: "notes", ar: "ملاحظات", en: "Notes" }];
-        rows = ledger.rows.map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), notes: r.notes || "—" }));
+        rows = filterByPeriod(ledger.rows).map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), notes: r.notes || "—" }));
       }
 
-      await generateShapedStatement({ shapeTitleAr: titleAr, shapeTitleEn: titleEn, partyName: supplier.name, partyLabel: "Supplier / المورد", periodText, columns, rows, totalsRows, itemTotals: shapeKey === "matching" || shapeKey === "general1" ? itemTotals : null, landscape: true });
+      await generateShapedStatement({ shapeTitleAr: titleAr, shapeTitleEn: titleEn, partyName: supplier.name, partyLabel: "Supplier / المورد", periodText: periodLabel, columns, rows, totalsRows, itemTotals: shapeKey === "matching" || shapeKey === "general1" ? itemTotals : null, landscape: true });
     } catch (e) {
       alert("تعذّر إنشاء الكشف: " + e.message);
     } finally {
@@ -202,6 +217,24 @@ export default function SupplierDetail() {
         <div onClick={() => setShowPicker(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 300 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: COLORS.panel, width: "100%", maxWidth: 480, borderRadius: "14px 14px 0 0", padding: 16 }}>
             <div style={{ fontWeight: 800, color: COLORS.gold, marginBottom: 12 }}>اختر شكل الكشف</div>
+            <div style={{ background: COLORS.panelLight, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: COLORS.textDim, marginBottom: 8 }}>فترة الكشف (اتركها فارغة للكشف الكامل)</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <label style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: COLORS.textDim, marginBottom: 4 }}>من</div>
+                  <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 6, border: `1px solid ${COLORS.border}`, background: COLORS.panel, color: COLORS.text, fontSize: 12 }} />
+                </label>
+                <label style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: COLORS.textDim, marginBottom: 4 }}>إلى</div>
+                  <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 6, border: `1px solid ${COLORS.border}`, background: COLORS.panel, color: COLORS.text, fontSize: 12 }} />
+                </label>
+              </div>
+              {(fromDate || toDate) && (
+                <button onClick={() => { setFromDate(""); setToDate(""); }} style={{ marginTop: 8, background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.textDim, borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
+                  مسح الفترة (كشف كامل)
+                </button>
+              )}
+            </div>
             {SHAPES.map((s) => (
               <div key={s.key} onClick={() => exportShape(s.key)} style={{ padding: 12, borderBottom: `1px solid ${COLORS.border}`, color: COLORS.text, cursor: "pointer" }}>{s.label}</div>
             ))}
