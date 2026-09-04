@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 import { COLORS, money } from "../../../lib/theme";
-import { getCustomerBalance, balanceDirection } from "../../../lib/dataHelpers";
+import { getCustomerBalance, balanceDirection, countPartyOperations, deletePartyCascade } from "../../../lib/dataHelpers";
 
 export default function CustomersPage() {
   const [rows, setRows] = useState([]);
@@ -39,19 +39,18 @@ export default function CustomersPage() {
   async function tryDelete(e, c) {
     e.preventDefault();
     e.stopPropagation();
-    const [{ count: salesCount }, { count: payCount }, { count: opsCount }] = await Promise.all([
-      supabase.from("sales").select("id", { count: "exact", head: true }).eq("customer_id", c.id),
-      supabase.from("payments").select("id", { count: "exact", head: true }).eq("party_type", "customer").eq("party_id", c.id),
-      supabase.from("custom_operations").select("id", { count: "exact", head: true }).eq("party_type", "customer").eq("party_id", c.id),
-    ]);
-    const total = (salesCount || 0) + (payCount || 0) + (opsCount || 0);
-    if (total > 0) {
-      alert(`لا يمكن حذف "${c.name}" — له ${salesCount || 0} عملية بيع، ${payCount || 0} دفعة، ${opsCount || 0} عملية مخصصة.`);
-      return;
+    const counts = await countPartyOperations("customer", c.id);
+    const msg =
+      counts.total > 0
+        ? `ØªØ­Ø°ÙØ±: Ø³ÙØªÙ Ø­Ø°Ù "${c.name}" ÙØ¹ ÙÙ Ø¹ÙÙÙØ§ØªÙ ÙÙØ§Ø¦ÙÙØ§:\n\nÂ· ${counts.main} Ø¹ÙÙÙØ© Ø¨ÙØ¹\nÂ· ${counts.payments} Ø¯ÙØ¹Ø©\nÂ· ${counts.custom} Ø¹ÙÙÙØ© ÙØ®ØµØµØ©\n\nÙØ°Ø§ Ø§ÙØ¥Ø¬Ø±Ø§Ø¡ ÙØ§ ÙÙÙÙ Ø§ÙØªØ±Ø§Ø¬Ø¹ Ø¹ÙÙ. ÙÙ Ø£ÙØª ÙØªØ£ÙØ¯Ø`
+        : `ØªØ£ÙÙØ¯ Ø­Ø°Ù "${c.name}" ÙÙØ§Ø¦ÙÙØ§Ø`;
+    if (!confirm(msg)) return;
+    try {
+      await deletePartyCascade("customer", c.id);
+      load();
+    } catch (err) {
+      alert("ØªØ¹Ø°Ø± Ø§ÙØ­Ø°Ù: " + err.message);
     }
-    if (!confirm(`تأكيد حذف "${c.name}" نهائيًا؟`)) return;
-    await supabase.from("customers").delete().eq("id", c.id);
-    load();
   }
 
   const filtered = rows.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
@@ -59,16 +58,16 @@ export default function CustomersPage() {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold }}>العملاء</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold }}>Ø§ÙØ¹ÙÙØ§Ø¡</h1>
         <button onClick={() => setShowAdd(!showAdd)} style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 10, padding: "8px 14px", fontWeight: 700 }}>
-          + إضافة
+          + Ø¥Ø¶Ø§ÙØ©
         </button>
       </div>
 
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 بحث بالاسم..."
+        placeholder="ð Ø¨Ø­Ø« Ø¨Ø§ÙØ§Ø³Ù..."
         style={{ width: "100%", padding: 12, borderRadius: 10, border: `1.5px solid ${COLORS.border}`, marginBottom: 14, boxSizing: "border-box", background: COLORS.panelLight, color: COLORS.text, fontSize: 14 }}
       />
 
@@ -77,19 +76,19 @@ export default function CustomersPage() {
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="اسم العميل الجديد"
+            placeholder="Ø§Ø³Ù Ø§ÙØ¹ÙÙÙ Ø§ÙØ¬Ø¯ÙØ¯"
             style={{ flex: 1, padding: 10, borderRadius: 8, border: `1.5px solid ${COLORS.border}`, background: COLORS.panelLight, color: COLORS.text }}
           />
           <button onClick={addCustomer} style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 8, padding: "0 16px", fontWeight: 700 }}>
-            حفظ
+            Ø­ÙØ¸
           </button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ color: COLORS.textDim }}>جاري التحميل…</div>
+        <div style={{ color: COLORS.textDim }}>Ø¬Ø§Ø±Ù Ø§ÙØªØ­ÙÙÙâ¦</div>
       ) : filtered.length === 0 ? (
-        <div style={{ color: COLORS.textDim }}>{search ? "لا نتائج مطابقة." : "لا يوجد عملاء بعد."}</div>
+        <div style={{ color: COLORS.textDim }}>{search ? "ÙØ§ ÙØªØ§Ø¦Ø¬ ÙØ·Ø§Ø¨ÙØ©." : "ÙØ§ ÙÙØ¬Ø¯ Ø¹ÙÙØ§Ø¡ Ø¨Ø¹Ø¯."}</div>
       ) : (
         filtered.map((c) => (
           <a key={c.id} href={`/customers/${c.id}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: COLORS.panel, borderRadius: 12, padding: 14, marginBottom: 10, border: `1px solid ${COLORS.border}` }}>
@@ -101,7 +100,7 @@ export default function CustomersPage() {
               </div>
             </div>
             <button onClick={(e) => tryDelete(e, c)} style={{ background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>
-              حذف
+              Ø­Ø°Ù
             </button>
           </a>
         ))
