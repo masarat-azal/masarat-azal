@@ -22,12 +22,13 @@ export async function POST(req) {
  "invoice_number":"","notes":"","missing":[]}
 
 قواعد صارمة:
-- لا تخترع رقمًا أو اسمًا غير مذكور صراحة أو غير واضح في الصورة. الحقل غير الواضح = null، واذكره في "missing".
+- لا تخترع رقما أو اسمًا غير مذكور صراحة أو غير واضح في الصورة. الحقل غير الواضح = null، واذكره في "missing".
 - إن كانت الصورة تحتوي شعار شركة مطبوعًا في الترويسة، استخدم اسم تلك الشركة كـ"party_name" لا أي اسم مكتوب بخط اليد.
 - طابق أسماء الأطراف والأصناف والمواقع مع القوائم أعلاه ولو اختلف الإملاء قليلًا.
 - بلا تاريخ مذكور = تاريخ اليوم.
 - "20 ألف" = 20000.
 - الخط اليدوي غير الواضح: لا تخمّن رقمًا.
+- لو كانت الرسالة طلب كشف/تقرير (مثل "كشف معاينة" أو "أرسل لي كشف")، وليست عملية فعلية، اجعل type="غير_مفهوم".
 ${!image ? `\nالرسالة: ${text}` : ""}`;
 
     const parts = [{ text: basePrompt }];
@@ -35,33 +36,37 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
       parts.push({ inline_data: { mime_type: mimeType || "image/jpeg", data: image } });
     }
 
-    const models = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
-    let lastErr = "";
+    const models = ["gemini-flash-latest", "gemini-3-flash-preview", "gemini-2.5-flash"];
+    const errors = [];
 
     for (const model of models) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts }] }),
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts }] }),
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const raw = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
+          const cleaned = raw.replace(/```json|```/g, "").trim();
+          const match = cleaned.match(/\{[\s\S]*\}/);
+          if (!match) {
+            errors.push(`[${model}] رد بلا JSON صالح`);
+            continue;
+          }
+          return Response.json(JSON.parse(match[0]));
         }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const raw = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
-        const cleaned = raw.replace(/```json|```/g, "").trim();
-        const match = cleaned.match(/\{[\s\S]*\}/);
-        if (!match) {
-          return Response.json({ error: "لم يفهم الذكاء الاصطناعي المحتوى" }, { status: 422 });
-        }
-        return Response.json(JSON.parse(match[0]));
+        const errText = await res.text();
+        errors.push(`[${model}] HTTP ${res.status}: ${errText.slice(0, 120)}`);
+      } catch (fetchErr) {
+        errors.push(`[${model}] خطأ اتصال: ${fetchErr.message}`);
       }
-      lastErr = `HTTP ${res.status} [${model}] ${(await res.text()).slice(0, 150)}`;
-      // نتخطى فورًا للنموذج التالي عند: غير موجود (404)، تجاوز الحصة (429)، أو ازدحام مؤقت (503)
-      if (res.status !== 404 && res.status !== 429 && res.status !== 503) break;
     }
-    return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
+    return Response.json({ error: "تعذر الوصول لأي نموذج ذكاء اصطناعي متاح:\n" + errors.join("\n") }, { status: 502 });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
