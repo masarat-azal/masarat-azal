@@ -2,72 +2,139 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "../../../../lib/supabaseClient";
-import { COLORS, money, fmtDate } from "../../../../lib/theme";
-import { getCustomerBalance, balanceDirection, fetchCustomOperations, fetchDocumentsMap } from "../../../../lib/dataHelpers";
-import { generateStatementPDF } from "../../../../lib/pdfGenerator";
+import { COLORS, money, fmtDateTime } from "../../../../lib/theme";
+import { buildPartyLedger, balanceDirection, deleteSale, deleteCustomOperation, deletePayment, fetchDocumentsMap } from "../../../../lib/dataHelpers";
+import { generateShapedStatement, generateQuickImage } from "../../../../lib/pdfGenerator";
+
+const SHAPES = [
+  { key: "matching", label: "كشف مطابقة" },
+  { key: "due", label: "كشف الرصيد المستحق" },
+  { key: "general1", label: "كشف عام 1" },
+  { key: "lahwalayh", label: "كشف له وعليه" },
+  { key: "general2", label: "كشف عام 2" },
+  { key: "quick", label: "كشف سريع (صورة)" },
+  { key: "textual", label: "كشف نصي" },
+];
 
 export default function CustomerDetail() {
   const { id } = useParams();
   const [customer, setCustomer] = useState(null);
-  const [sales, setSales] = useState([]);
-  const [customOps, setCustomOps] = useState([]);
+  const [ledger, setLedger] = useState(null);
   const [docsMap, setDocsMap] = useState({});
-  const [balance, setBalance] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [textualMsg, setTextualMsg] = useState("");
+  const [exporting, setExporting] = useState(false);
 
+  async function load() {
+    setLoading(true);
+    const { data: c } = await supabase.from("customers").select("*").eq("id", id).single();
+    const l = await buildPartyLedger("customer", id);
+    const docs = await fetchDocumentsMap(l.rows.map((r) => r.op_number).filter((n) => n && n !== "OPENING"));
+    setCustomer(c);
+    setLedger(l);
+    setDocsMap(docs);
+    setLoading(false);
+  }
   useEffect(() => {
-    (async () => {
-      const { data: c } = await supabase.from("customers").select("*").eq("id", id).single();
-      const { data: s } = await supabase
-        .from("sales")
-        .select("*, locations(name), products(name)")
-        .eq("customer_id", id)
-        .order("date", { ascending: false });
-      const ops = await fetchCustomOperations("customer", id);
-      const b = await getCustomerBalance(id);
-      const opNumbers = [...(s || []).map((r) => r.op_number), ...ops.map((r) => r.op_number)].filter(Boolean);
-      const docs = await fetchDocumentsMap(opNumbers);
-      setCustomer(c);
-      setSales(s || []);
-      setCustomOps(ops);
-      setDocsMap(docs);
-      setBalance(b);
-      setLoading(false);
-    })();
+    load();
   }, [id]);
 
-  if (loading) return <div style={{ color: COLORS.textDim }}>جاري التحميل…</div>;
+  if (loading || !ledger) return <div style={{ color: COLORS.textDim }}>جاري التحميل…</div>;
   if (!customer) return <div style={{ color: COLORS.red }}>العميل غير موجود.</div>;
 
-  const dir = balanceDirection(false, balance.balance);
+  const dir = balanceDirection(false, ledger.balance);
+  const periodText = ledger.rowsAsc.length
+    ? `${new Date(ledger.rowsAsc[0].date).toLocaleDateString("en-GB")} — ${new Date(ledger.rowsAsc[ledger.rowsAsc.length - 1].date).toLocaleDateString("en-GB")}`
+    : "—";
 
-  const timeline = [
-    ...sales.map((s) => ({ kind: "sale", date: s.date, data: s })),
-    ...customOps.map((o) => ({ kind: "custom", date: o.date, data: o })),
-  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+  async function deleteRow(row) {
+    if (!confirm("تأكيد حذف هذه العملية نهائيًا؟")) return;
+    if (row.op_number === "OPENING") {
+      alert("لحذف الرصيد الافتتاحي، احذفه من صفحة الإعدادات مباشرة من قاعدة البيانات.");
+      return;
+    }
+    if (row.op_type_name === "بيع") await deleteSale(row._id);
+    else if (row.op_type_name === "دفعة من عميل") await deletePayment(row._id);
+    else await deleteCustomOperation(row._id);
+    load();
+  }
 
-  async function downloadPDF() {
-    setPdfLoading(true);
+  async function exportShape(shapeKey) {
+    setShowPicker(false);
+    setExporting(true);
     try {
-      const items = timeline.map((item) => {
-        const opNumber = item.data.op_number;
-        const hasDoc = !!(docsMap[opNumber] && docsMap[opNumber].length);
-        return item.kind === "sale"
-          ? { date: item.data.date, description: `${item.data.products?.name || "ديزل"} — ${item.data.quantity || ""} لتر`, amount: item.data.net_total, effect: 1, hasDoc }
-          : { date: item.data.date, description: `${item.data.type_name} — ${item.data.description || ""}`, amount: item.data.amount, effect: item.data.effect, hasDoc };
-      });
-      await generateStatementPDF({
-        partyName: customer.name,
-        partyLabel: "Customer / العميل",
-        items,
-        totalDue: balance.totalNet + balance.opening + balance.customOpsEffect,
-        totalPaid: balance.paidInSales + balance.totalPayments,
-        balanceText: dir.text,
-        balanceAmount: dir.amount,
-      });
+      const dueTxt = `${dir.text}: ${money(dir.amount)}`;
+      if (shapeKey === "textual") {
+        setTextualMsg(`📌 ${customer.name}\nإجمالي الرصيد: ${money(Math.abs(ledger.balance))}\n${dir.icon} ${dueTxt}\nالفترة: ${periodText}`);
+        setExporting(false);
+        return;
+      }
+      if (shapeKey === "quick") {
+        await generateQuickImage({
+          partyName: customer.name,
+          rows: ledger.rows.map((r) => ({ date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due) })),
+          totalsRows: [
+            { label: "إجمالي المستحق", value: money(ledger.totalDue) },
+            { label: "إجمالي المدفوع", value: money(ledger.totalPaid) },
+            { label: dueTxt, value: "", highlight: true },
+          ],
+        });
+        setExporting(false);
+        return;
+      }
+
+      const itemTotals = Object.entries(ledger.byItem).map(([item, v]) => ({ item, qty: `${v.qty.toLocaleString()} لتر`, amount: money(v.amount) }));
+      const totalsRows = [
+        { label: "إجمالي المستحق", value: money(ledger.totalDue) },
+        { label: "إجمالي المدفوع", value: money(ledger.totalPaid) },
+        { label: dueTxt, value: "", highlight: true },
+      ];
+
+      let columns, rows, titleAr, titleEn;
+      if (shapeKey === "matching") {
+        titleAr = "كشف مطابقة"; titleEn = "Matching Statement";
+        columns = [
+          { key: "num", ar: "#", en: "#" }, { key: "op", ar: "رقم العملية", en: "Op No." }, { key: "date", ar: "التاريخ", en: "Date" },
+          { key: "party", ar: "العميل", en: "Customer" }, { key: "type", ar: "العملية", en: "Type" }, { key: "item", ar: "الصنف", en: "Item" },
+          { key: "qty", ar: "الكمية", en: "Qty" }, { key: "loc", ar: "الموقع", en: "Location" }, { key: "price", ar: "السعر", en: "Price" },
+          { key: "total", ar: "الإجمالي", en: "Total" }, { key: "paid", ar: "المدفوع", en: "Paid" }, { key: "due", ar: "المتبقي", en: "Due" },
+          { key: "bal", ar: "الرصيد", en: "Balance" }, { key: "inv", ar: "الفاتورة", en: "Invoice" }, { key: "__doc__", ar: "المستندات", en: "Docs" }, { key: "notes", ar: "ملاحظات", en: "Notes" },
+        ];
+        rows = ledger.rows.map((r, i) => ({
+          num: i + 1, op: r.op_number, date: fmtDateTime(r.date).date, party: customer.name, type: r.op_type_name, item: r.item_name || "—",
+          qty: r.qty ? Number(r.qty).toLocaleString() : "—", loc: r.location_name || "—", price: r.unit_price || "—",
+          total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), bal: money(r.running_balance),
+          inv: r.invoice_number || "—", notes: r.notes || "—", docUrl: docsMap[r.op_number]?.[0]?.file_url,
+        }));
+      } else if (shapeKey === "due") {
+        titleAr = "كشف الرصيد المستحق"; titleEn = "Balance Due Statement";
+        columns = [{ key: "num", ar: "#", en: "#" }, { key: "date", ar: "التاريخ", en: "Date" }, { key: "op", ar: "العملية", en: "Transaction" }, { key: "amount", ar: "المبلغ", en: "Amount" }, { key: "bal", ar: "الرصيد المستحق", en: "Balance" }];
+        rows = ledger.rows.map((r, i) => ({
+          num: i + 1,
+          date: fmtDateTime(r.date).date,
+          op: r.item_name ? `${r.op_type_name} ${r.item_name} ${r.qty || ""} لتر × ${r.unit_price || ""} بقيمة ${money(r.display_total)}` : `${r.op_type_name} — ${money(Math.abs(r.delta))}`,
+          amount: money(r.delta), bal: money(r.running_balance),
+        }));
+      } else if (shapeKey === "general1") {
+        titleAr = "كشف عام 1"; titleEn = "General Statement 1";
+        columns = [{ key: "num", ar: "#", en: "#" }, { key: "date", ar: "التاريخ", en: "Date" }, { key: "item", ar: "الصنف", en: "Item" }, { key: "price", ar: "السعر", en: "Price" }, { key: "total", ar: "الإجمالي", en: "Total" }, { key: "paid", ar: "المدفوع", en: "Paid" }, { key: "due", ar: "المتبقي", en: "Due" }, { key: "__doc__", ar: "المستندات", en: "Docs" }, { key: "notes", ar: "ملاحظات", en: "Notes" }];
+        rows = ledger.rows.map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), notes: r.notes || "—", docUrl: docsMap[r.op_number]?.[0]?.file_url }));
+      } else if (shapeKey === "lahwalayh") {
+        titleAr = "كشف له وعليه"; titleEn = "Debit-Credit Statement";
+        columns = [{ key: "num", ar: "#", en: "#" }, { key: "date", ar: "التاريخ", en: "Date" }, { key: "op", ar: "العملية", en: "Transaction" }, { key: "total", ar: "الإجمالي", en: "Total" }, { key: "paid", ar: "المدفوع", en: "Paid" }, { key: "due", ar: "المتبقي", en: "Due" }, { key: "inv", ar: "الفاتورة", en: "Invoice" }, { key: "notes", ar: "ملاحظات", en: "Notes" }];
+        rows = ledger.rows.map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, op: r.item_name ? `${r.op_type_name} ${r.item_name} ${r.qty || ""} لتر × ${r.unit_price || ""} بقيمة ${money(r.display_total)}` : r.op_type_name, total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), inv: r.invoice_number || "—", notes: r.notes || "—" }));
+      } else if (shapeKey === "general2") {
+        titleAr = "كشف عام 2"; titleEn = "General Statement 2";
+        columns = [{ key: "num", ar: "#", en: "#" }, { key: "date", ar: "التاريخ", en: "Date" }, { key: "item", ar: "الصنف", en: "Item" }, { key: "price", ar: "السعر", en: "Price" }, { key: "total", ar: "الإجمالي", en: "Total" }, { key: "paid", ar: "المدفوع", en: "Paid" }, { key: "due", ar: "المتبقي", en: "Due" }, { key: "notes", ar: "ملاحظات", en: "Notes" }];
+        rows = ledger.rows.map((r, i) => ({ num: i + 1, date: fmtDateTime(r.date).date, item: r.item_name || r.op_type_name, price: r.unit_price || "—", total: money(r.display_total), paid: money(r.display_paid), due: money(r.display_due), notes: r.notes || "—" }));
+      }
+
+      await generateShapedStatement({ shapeTitleAr: titleAr, shapeTitleEn: titleEn, partyName: customer.name, partyLabel: "Customer / العميل", periodText, columns, rows, totalsRows, itemTotals: shapeKey === "matching" || shapeKey === "general1" ? itemTotals : null, landscape: true });
+    } catch (e) {
+      alert("تعذّر إنشاء الكشف: " + e.message);
     } finally {
-      setPdfLoading(false);
+      setExporting(false);
     }
   }
 
@@ -76,82 +143,80 @@ export default function CustomerDetail() {
       <h1 style={{ fontSize: 20, fontWeight: 800, color: COLORS.gold, marginBottom: 4 }}>{customer.name}</h1>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ fontSize: 13, color: COLORS.textDim }}>صفحة العميل</div>
-        <button
-          onClick={downloadPDF}
-          disabled={pdfLoading}
-          style={{ background: COLORS.gold, color: COLORS.bg, border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: pdfLoading ? 0.6 : 1 }}
-        >
-          {pdfLoading ? "⏳ جاري التجهيز…" : "📄 تحميل PDF"}
+        <button onClick={() => setShowPicker(true)} disabled={exporting} style={{ background: COLORS.gradGold, color: COLORS.bg, border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+          {exporting ? "⏳..." : "📄 طلب كشف"}
         </button>
       </div>
 
       <div style={{ background: COLORS.panel, borderRadius: 14, padding: 16, marginBottom: 16, border: `1px solid ${COLORS.border}` }}>
         <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4 }}>إجمالي المستحق</div>
-        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10, color: COLORS.text }}>{money(balance.totalNet + balance.opening + balance.customOpsEffect)}</div>
+        <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10, color: COLORS.text }}>{money(ledger.totalDue)}</div>
         <div style={{ fontSize: 13, color: COLORS.textDim, marginBottom: 4 }}>المدفوع</div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold, marginBottom: 10 }}>{money(balance.paidInSales + balance.totalPayments)}</div>
-        <div style={{ fontSize: 15, fontWeight: 800, color: dir.icon === "🔴" ? COLORS.red : "#3EBD8C" }}>
-          {dir.icon} {dir.text}
-          {dir.amount ? `: ${money(dir.amount)}` : ""}
-        </div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.gold, marginBottom: 10 }}>{money(ledger.totalPaid)}</div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: dir.icon === "🔴" ? COLORS.red : COLORS.green }}>{dir.icon} {dir.text}{dir.amount ? `: ${money(dir.amount)}` : ""}</div>
       </div>
 
-      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, color: COLORS.text }}>العمليات</h2>
-      {timeline.length === 0 ? (
+      <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, color: COLORS.text }}>كشف مطابقة (مباشر)</h2>
+      {ledger.rows.length === 0 ? (
         <div style={{ color: COLORS.textDim }}>لا توجد عمليات بعد.</div>
       ) : (
-        timeline.map((item) => {
-          const docs = docsMap[item.data.op_number] || [];
-          if (item.kind === "sale") {
-            const s = item.data;
-            return (
-              <div key={"s" + s.id} style={{ background: COLORS.panel, borderRadius: 10, padding: 12, marginBottom: 8, border: `1px solid ${COLORS.border}`, fontSize: 13 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <b style={{ color: COLORS.text }}>{fmtDate(s.date)}</b>
-                  <span style={{ color: COLORS.textDim }}>{s.locations?.name || ""}</span>
-                </div>
-                <div style={{ color: COLORS.text }}>
-                  {s.products?.name || "ديزل"} — {s.quantity ? `${s.quantity} لتر × ${s.unit_price}` : ""} = {money(s.net_total)}
-                </div>
-                {s.notes && <div style={{ color: COLORS.textDim, marginTop: 4 }}>{s.notes}</div>}
-                {docs.length > 0 && (
-                  <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {docs.map((d) => (
-                      <a key={d.id} href={d.file_url} target="_blank" rel="noreferrer" style={{ color: COLORS.gold, fontSize: 11, textDecoration: "underline" }}>
-                        📎 عرض المستند
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          }
-          const o = item.data;
-          const isAdd = o.effect > 0;
-          return (
-            <div key={"c" + o.id} style={{ background: COLORS.panel, borderRadius: 10, padding: 12, marginBottom: 8, border: `1px solid ${isAdd ? "#3EBD8C" : COLORS.red}`, fontSize: 13 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <b style={{ color: COLORS.gold }}>⭐ {o.type_name}</b>
-                <span style={{ color: COLORS.textDim }}>{fmtDate(o.date)}</span>
-              </div>
-              <div style={{ color: isAdd ? "#3EBD8C" : COLORS.red, fontWeight: 700 }}>
-                {isAdd ? "+" : "-"} {money(o.amount)}
-              </div>
-              {o.description && <div style={{ color: COLORS.textDim, marginTop: 4 }}>{o.description}</div>}
-              {o.reference_number && <div style={{ color: COLORS.textDim, marginTop: 2, fontSize: 11 }}>مرجع: {o.reference_number}</div>}
-              {docs.length > 0 && (
-                <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {docs.map((d) => (
-                    <a key={d.id} href={d.file_url} target="_blank" rel="noreferrer" style={{ color: COLORS.gold, fontSize: 11, textDecoration: "underline" }}>
-                      📎 عرض المستند
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 700 }}>
+            <thead>
+              <tr style={{ background: COLORS.panel }}>
+                {["#", "التاريخ", "العملية", "الصنف", "الكمية", "السعر", "الإجمالي", "المدفوع", "المتبقي", "الرصيد", "مستند", ""].map((h) => (
+                  <th key={h} style={{ padding: 6, color: COLORS.gold, border: `1px solid ${COLORS.border}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {ledger.rows.map((r, i) => {
+                const docs = docsMap[r.op_number] || [];
+                return (
+                  <tr key={r.op_number + i} style={{ background: i % 2 ? COLORS.panelLight : "transparent" }}>
+                    <td style={cellStyle}>{i + 1}</td>
+                    <td style={cellStyle}>{fmtDateTime(r.date).date}</td>
+                    <td style={cellStyle}>{r.op_type_name}</td>
+                    <td style={cellStyle}>{r.item_name || "—"}</td>
+                    <td style={cellStyle}>{r.qty ? Number(r.qty).toLocaleString() : "—"}</td>
+                    <td style={cellStyle}>{r.unit_price || "—"}</td>
+                    <td style={cellStyle}>{money(r.display_total)}</td>
+                    <td style={cellStyle}>{money(r.display_paid)}</td>
+                    <td style={cellStyle}>{money(r.display_due)}</td>
+                    <td style={cellStyle}>{money(r.running_balance)}</td>
+                    <td style={cellStyle}>{docs.length ? <a href={docs[0].file_url} target="_blank" rel="noreferrer" style={{ color: COLORS.gold }}>📎</a> : "—"}</td>
+                    <td style={cellStyle}>
+                      {r.op_number !== "OPENING" && (
+                        <button onClick={() => deleteRow(r)} style={{ background: "transparent", border: `1px solid ${COLORS.red}`, color: COLORS.red, borderRadius: 6, padding: "2px 6px", fontSize: 10, cursor: "pointer" }}>حذف</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {showPicker && (
+        <div onClick={() => setShowPicker(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 300 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: COLORS.panel, width: "100%", maxWidth: 480, borderRadius: "14px 14px 0 0", padding: 16 }}>
+            <div style={{ fontWeight: 800, color: COLORS.gold, marginBottom: 12 }}>اختر شكل الكشف</div>
+            {SHAPES.map((s) => (
+              <div key={s.key} onClick={() => exportShape(s.key)} style={{ padding: 12, borderBottom: `1px solid ${COLORS.border}`, color: COLORS.text, cursor: "pointer" }}>{s.label}</div>
+            ))}
+            <div onClick={() => setShowPicker(false)} style={{ textAlign: "center", padding: 10, color: COLORS.red, cursor: "pointer" }}>إلغاء</div>
+          </div>
+        </div>
+      )}
+
+      {textualMsg && (
+        <div onClick={() => setTextualMsg("")} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300 }}>
+          <div style={{ background: COLORS.panel, padding: 20, borderRadius: 14, maxWidth: 320, whiteSpace: "pre-line", color: COLORS.text, textAlign: "center", border: `1px solid ${COLORS.gold}` }}>{textualMsg}</div>
+        </div>
       )}
     </div>
   );
 }
+
+const cellStyle = { padding: 6, textAlign: "center", border: `1px solid ${COLORS.border}`, color: COLORS.text };
