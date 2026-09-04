@@ -1,8 +1,9 @@
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { text, image, mimeType, customers, suppliers, products, locations } = body;
+    const { text, image, mimeType, customers = [], suppliers = [], products = [], locations = [] } = body;
     const key = process.env.GEMINI_API_KEY;
+    
     if (!key) {
       return Response.json({ error: "GEMINI_API_KEY غير مضبوط في إعدادات الخادم" }, { status: 500 });
     }
@@ -32,12 +33,11 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
 
     const parts = [{ text: basePrompt }];
     if (image) {
-      parts.push({ inline_data: { mime_type: mimeType || "image/jpeg", data: image } });
+      parts.push({ inlineData: { mimeType: mimeType || "image/jpeg", data: image } });
     }
 
-    // ⚠️ gemini-2.0-flash تم إيقافه نهائيًا من جوجل (يرجّع 404 دائمًا) — تم حذفه من القائمة.
-    // gemini-flash-latest يشير تلقائيًا لأحدث نموذج Flash مستقر، فيقلل حاجتنا لتحديث الأسماء يدويًا مستقبلًا.
-    const models = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest"];
+    // أسماء النماذج الرسمية والمستقرة حالياً من Google Gemini
+    const models = ["gemini-1.5-flash", "gemini-1.5-pro"];
     const MAX_RETRIES_PER_MODEL = 2;
     const RETRY_DELAY_MS = 1200;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -52,7 +52,12 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ contents: [{ parts }] }),
+              body: JSON.stringify({
+                contents: [{ parts }],
+                generationConfig: {
+                  responseMimeType: "application/json" // إجبار النموذج على إرجاع JSON مستقر
+                }
+              }),
             }
           );
         } catch (netErr) {
@@ -74,19 +79,18 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
 
         lastErr = `HTTP ${res.status} [${model}] ${(await res.text()).slice(0, 150)}`;
 
-        // ازدحام مؤقت (429/503): أعد المحاولة على نفس النموذج بتأخير متزايد قبل الانتقال للتالي
+        // في حال وجود ضغط على الخوادم (429/503)
         if (res.status === 429 || res.status === 503) {
           if (attempt < MAX_RETRIES_PER_MODEL) {
             await sleep(RETRY_DELAY_MS * (attempt + 1));
             continue;
           }
-          break; // استنفدنا المحاولات على هذا النموذج -> جرّب النموذج التالي
+          break; 
         }
 
-        // النموذج غير موجود/متوقف -> جرّب النموذج التالي فورًا
+        // إذا كان النموذج غير موجود تنقل للنموذج التالي مباشرة
         if (res.status === 404) break;
 
-        // أي خطأ آخر (مثل مفتاح غير صحيح) -> توقف فورًا، إعادة المحاولة لن تفيد
         return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
       }
     }
