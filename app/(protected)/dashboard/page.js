@@ -78,9 +78,9 @@ export default function Dashboard() {
           </div>
         </>
       )}
-      <a href="/operations/new" style={{ display: "block", textAlign: "center", marginTop: 20, background: COLORS.gold, color: COLORS.bg, padding: "14px", borderRadius: 12, fontWeight: 700 }}>
-        + تسجيل عملية جديدة
-      </a>
+      <div style={{ textAlign: "center", marginTop: 20, color: COLORS.textDim, fontSize: 13 }}>
+        💬 اضغط على أيقونة المحادثة العائمة لتسجيل عملية جديدة
+      </div>
     </div>
   );
 }
