@@ -1,19 +1,18 @@
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { text, image, mimeType, customers = [], suppliers = [], products = [], locations = [] } = body;
+    const { text, image, mimeType, customers, suppliers, products, locations } = body;
     const key = process.env.GEMINI_API_KEY;
-
     if (!key) {
       return Response.json({ error: "GEMINI_API_KEY غير مضبوط في إعدادات الخادم" }, { status: 500 });
     }
 
-    const basePrompt = `أنت مساعد محاسبي لشركة نقل ديزل. حلّل ${image ? "الصورة المرفقة (فاتورة أو إيصال أو سند)" : "الرسالة التالية"} وأخرج JSON فقط بلا أي نص إضافي، بلا علامات ماركداون وبلا شرح.
+    const basePrompt = `أنت مساعد محاسبي لشركة نقل ديزل. حلّل ${image ? "الصورة أو المستند المرفق (فاتورة أو إيصال أو سند)" : "الرسالة التالية"} وأخرج JSON فقط بلا أي نص إضافي، بلا علامات ماركداون وبلا شرح.
 
-العملاء المعروفون: ${customers.join("، ") || "—"}
-الموردون المعروفون: ${suppliers.join("، ") || "—"}
-الأصناف المعروفة: ${products.join("، ") || "—"}
-المواقع المعروفة: ${locations.join("، ") || "—"}
+العملاء المعروفون: ${(customers || []).join("، ") || "—"}
+الموردون المعروفون: ${(suppliers || []).join("، ") || "—"}
+الأصناف المعروفة: ${(products || []).join("، ") || "—"}
+المواقع المعروفة: ${(locations || []).join("، ") || "—"}
 تاريخ اليوم: ${new Date().toISOString().slice(0, 10)}
 
 أخرج بالضبط هذا الشكل:
@@ -33,77 +32,39 @@ ${!image ? `\nالرسالة: ${text}` : ""}`;
 
     const parts = [{ text: basePrompt }];
     if (image) {
-      parts.push({ inlineData: { mimeType: mimeType || "image/jpeg", data: image } });
+      parts.push({ inline_data: { mime_type: mimeType || "image/jpeg", data: image } });
     }
 
-    // القائمة المحددة من طرفك
-    var GEMINI_MODELS = [
-      'gemini-3.7-flash',
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
-      'gemini-3-flash-preview',
-      'gemini-2.5-flash',
-      'gemini-flash-latest'
-    ];
-
-    const MAX_RETRIES_PER_MODEL = 2;
-    const RETRY_DELAY_MS = 1200;
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+   const models = [
+  "gemini-2.5-flash",
+  "gemini-flash-latest"
+];
     let lastErr = "";
 
-    for (const model of GEMINI_MODELS) {
-      for (let attempt = 0; attempt <= MAX_RETRIES_PER_MODEL; attempt++) {
-        let res;
-        try {
-          res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts }],
-                generationConfig: {
-                  responseMimeType: "application/json"
-                }
-              }),
-            }
-          );
-        } catch (netErr) {
-          lastErr = `تعذر الاتصال [${model}]: ${netErr.message}`;
-          await sleep(RETRY_DELAY_MS);
-          continue;
+    for (const model of models) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts }] }),
         }
-
-        if (res.ok) {
-          const data = await res.json();
-          const raw = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
-          const cleaned = raw.replace(/```json|```/g, "").trim();
-          const match = cleaned.match(/\{[\s\S]*\}/);
-          if (!match) {
-            return Response.json({ error: "لم يفهم الذكاء الاصطناعي المحتوى" }, { status: 422 });
-          }
-          return Response.json(JSON.parse(match[0]));
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const raw = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
+        const cleaned = raw.replace(/```json|```/g, "").trim();
+        const match = cleaned.match(/\{[\s\S]*\}/);
+        if (!match) {
+          return Response.json({ error: "لم يفهم الذكاء الاصطناعي المحتوى" }, { status: 422 });
         }
-
-        lastErr = `HTTP ${res.status} [${model}] ${(await res.text()).slice(0, 150)}`;
-
-        // في حال وجود ضغط على الخوادم (429/503)
-        if (res.status === 429 || res.status === 503) {
-          if (attempt < MAX_RETRIES_PER_MODEL) {
-            await sleep(RETRY_DELAY_MS * (attempt + 1));
-            continue;
-          }
-          break;
-        }
-
-        // إذا كان النموذج غير موجود (404) جرب النموذج التالي مباشرة في القائمة
-        if (res.status === 404) break;
-
-        return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
+        return Response.json(JSON.parse(match[0]));
       }
+      lastErr = `HTTP ${res.status} [${model}] ${(await res.text()).slice(0, 150)}`;
+      // نتخطى فورًا للنموذج التالي عند: غير موجود (404)، تجاوز الحصة (429)، أو ازدحام مؤقت (503)
+      if (res.status !== 404 && res.status !== 429 && res.status !== 503) break;
     }
-
-    return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي بعد عدة محاولات: " + lastErr }, { status: 502 });
+    return Response.json({ error: "تعذر الوصول للذكاء الاصطناعي: " + lastErr }, { status: 502 });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
